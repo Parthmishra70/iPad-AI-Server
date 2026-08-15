@@ -22,7 +22,7 @@ class ServerManager: ObservableObject {
     @Published var errorMessage: String?
     
     private var listener: NWListener?
-    private var connections: Set<NWConnection> = []
+    private var connections: Set<NWConnectionWrapper> = []
     private var startTime: Date?
     
     // MARK: - Configuration
@@ -48,7 +48,7 @@ class ServerManager: ObservableObject {
         do {
             try await setupListener()
             isRunning = true
-            startTime = Date
+            startTime = Date()
             errorMessage = nil
             
             print("Server started on port \(port)")
@@ -61,7 +61,7 @@ class ServerManager: ObservableObject {
     func stopServer() {
         listener?.cancel()
         for connection in connections {
-            connection.cancel()
+            connection.connection.cancel()
         }
         connections.removeAll()
         isRunning = false
@@ -75,9 +75,6 @@ class ServerManager: ObservableObject {
     private func setupListener() async throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        
-        // Only allow local network access by default
-        parameters.requiredInterfaceType = .wifi
         
         listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: UInt16(port))!)
         
@@ -107,16 +104,19 @@ class ServerManager: ObservableObject {
     }
     
     private func handleConnection(_ connection: NWConnection) {
-        connections.insert(connection)
+        let wrapper = NWConnectionWrapper(connection: connection)
+        connections.insert(wrapper)
         
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
                 // Connection established, start reading
-                self?.readData(from: connection)
+                Task { @MainActor in
+                    self?.readData(from: connection)
+                }
             case .failed, .cancelled:
                 Task { @MainActor in
-                    self?.connections.remove(connection)
+                    self?.connections.remove(wrapper)
                 }
             default:
                 break
@@ -136,7 +136,10 @@ class ServerManager: ObservableObject {
             
             if isComplete || error != nil {
                 Task { @MainActor in
-                    self?.connections.remove(connection)
+                    let wrapper = self?.connections.first { $0.connection === connection }
+                    if let wrapper = wrapper {
+                        self?.connections.remove(wrapper)
+                    }
                 }
             }
         }
@@ -180,7 +183,7 @@ class ServerManager: ObservableObject {
         
         // Increment request counter
         requestCount += 1
-        lastRequestTime = Date
+        lastRequestTime = Date()
         
         // Check API key authentication (except for /health)
         if path != "/health" {
@@ -257,7 +260,7 @@ class ServerManager: ObservableObject {
             return
         }
         
-        if request.stream {
+        if request.stream ?? false {
             await handleStreamingChat(request: request, connection: connection)
         } else {
             await handleStandardChat(request: request, connection: connection)
@@ -280,7 +283,7 @@ class ServerManager: ObservableObject {
                 choices: [
                     Choice(
                         index: 0,
-                        message: Message(role: "assistant", content: content),
+                        message: ChatMessage(role: "assistant", content: content),
                         finishReason: "stop"
                     )
                 ]
@@ -403,6 +406,26 @@ class ServerManager: ObservableObject {
     }
 }
 
+// MARK: - NWConnection Wrapper
+
+/// Wrapper for NWConnection to conform to Hashable
+class NWConnectionWrapper: Hashable {
+    let connection: NWConnection
+    private let id = UUID()
+    
+    init(connection: NWConnection) {
+        self.connection = connection
+    }
+    
+    static func == (lhs: NWConnectionWrapper, rhs: NWConnectionWrapper) -> Bool {
+        return lhs.id == rhs.id
+    }
+    
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
 // MARK: - HTTP Status Codes
 
 enum HTTPStatus {
@@ -469,14 +492,14 @@ struct ChatCompletionRequest: Codable {
     let stream: Bool?
 }
 
-struct Message: Codable {
+struct ChatMessage: Codable {
     let role: String
     let content: String
 }
 
 struct Choice: Codable {
     let index: Int
-    let message: Message
+    let message: ChatMessage
     let finishReason: String
     
     enum CodingKeys: String, CodingKey {

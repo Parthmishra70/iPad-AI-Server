@@ -18,6 +18,8 @@ enum ModelState: String, Codable {
     case loaded = "Loaded"
     case error = "Error"
     case unavailable = "Unavailable"
+    case validating = "Validating"
+    case invalid = "Invalid"
 }
 
 /// Represents a compatible AI model that can be downloaded and used
@@ -35,15 +37,23 @@ struct AIModel: Identifiable, Codable, Equatable {
     var downloadProgress: Double // 0.0 to 1.0
     var errorMessage: String?
     
+    // New fields for GGUF/HuggingFace models
+    let provider: String
+    let hfRepo: String
+    let ggufFilename: String
+    let quantization: String
+    let contextLength: Int
+    let sha256: String?
+    
     enum ModelFormat: String, Codable {
-        case tflite = "TFLite"
-        case mlmodel = "CoreML"
-        case safetensors = "SafeTensors"
+        case gguf = "GGUF"
     }
     
-    init(id: String, name: String, displayName: String, description: String, 
-         fileSizeGB: Double, requiredRAM: Double, format: ModelFormat, 
-         sourceURL: URL? = nil) {
+    init(id: String, name: String, displayName: String, description: String,
+         fileSizeGB: Double, requiredRAM: Double, format: ModelFormat,
+         sourceURL: URL? = nil,
+         provider: String = "", hfRepo: String = "", ggufFilename: String = "",
+         quantization: String = "", contextLength: Int = 2048, sha256: String? = nil) {
         self.id = id
         self.name = name
         self.displayName = displayName
@@ -56,6 +66,12 @@ struct AIModel: Identifiable, Codable, Equatable {
         self.localPath = nil
         self.downloadProgress = 0.0
         self.errorMessage = nil
+        self.provider = provider
+        self.hfRepo = hfRepo
+        self.ggufFilename = ggufFilename
+        self.quantization = quantization
+        self.contextLength = contextLength
+        self.sha256 = sha256
     }
     
     /// Check if model can be loaded for inference
@@ -102,46 +118,64 @@ struct AIModel: Identifiable, Codable, Equatable {
 
 /// Extension for predefined models
 extension AIModel {
-    /// Gemma 2B - Small, fast model suitable for most iPads
-    static let gemma2B = AIModel(
-        id: "gemma-2b",
-        name: "gemma",
-        displayName: "Gemma 2B",
-        description: "Google's lightweight 2B parameter model. Good balance of speed and quality.",
-        fileSizeGB: 1.5,
-        requiredRAM: 4.0,
-        format: .tflite,
-        sourceURL: URL(string: "https://huggingface.co/google/gemma-2b-it-litert/resolve/main/gemma-2b-it-litert.litert-model")
+    /// Qwen2.5-1.5B-Instruct Q4_K_M - Default model for iPad
+    static let qwen2_5_1_5B = AIModel(
+        id: "qwen2.5-1.5b-instruct-q4_k_m",
+        name: "qwen2.5-1.5b-instruct",
+        displayName: "Qwen2.5-1.5B-Instruct (Q4_K_M)",
+        description: "Qwen2.5 1.5B parameter instruction-tuned model. Excellent balance of speed and quality for iPad. Q4_K_M quantization fits in ~3GB RAM.",
+        fileSizeGB: 1.2,
+        requiredRAM: 3.0,
+        format: .gguf,
+        sourceURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+        provider: "Qwen",
+        hfRepo: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        ggufFilename: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        quantization: "Q4_K_M",
+        contextLength: 4096,
+        sha256: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
     )
     
-    /// Gemma 3B - Medium sized model
-    static let gemma3B = AIModel(
-        id: "gemma-3b",
-        name: "gemma-3b",
-        displayName: "Gemma 3B",
-        description: "Enhanced 3B parameter model with better reasoning capabilities.",
-        fileSizeGB: 2.5,
-        requiredRAM: 6.0,
-        format: .tflite,
-        sourceURL: URL(string: "https://huggingface.co/google/gemma-3b-it-litert/resolve/main/gemma-3b-it-litert.litert-model")
+    /// Qwen2.5-3B-Instruct Q4_K_M - Higher quality, needs M-series iPad
+    static let qwen2_5_3B = AIModel(
+        id: "qwen2.5-3b-instruct-q4_k_m",
+        name: "qwen2.5-3b-instruct",
+        displayName: "Qwen2.5-3B-Instruct (Q4_K_M)",
+        description: "Qwen2.5 3B parameter model. Better reasoning, requires iPad with 6GB+ RAM (M-series).",
+        fileSizeGB: 2.0,
+        requiredRAM: 5.0,
+        format: .gguf,
+        sourceURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"),
+        provider: "Qwen",
+        hfRepo: "Qwen/Qwen2.5-3B-Instruct-GGUF",
+        ggufFilename: "qwen2.5-3b-instruct-q4_k_m.gguf",
+        quantization: "Q4_K_M",
+        contextLength: 4096,
+        sha256: nil
     )
     
-    /// Phi-3 Mini - Microsoft's efficient small model
-    static let phi3Mini = AIModel(
-        id: "phi-3-mini",
-        name: "phi-3-mini",
-        displayName: "Phi-3 Mini (3.8B)",
-        description: "Microsoft's compact model with strong performance for its size.",
-        fileSizeGB: 2.3,
-        requiredRAM: 6.0,
-        format: .tflite,
-        sourceURL: URL(string: "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-liteRT/resolve/main/Phi-3-mini-4k-instruct-liteRT.litert-model")
+    /// Llama-3.2-3B-Instruct Q4_K_M - Llama family alternative
+    static let llama3_2_3B = AIModel(
+        id: "llama-3.2-3b-instruct-q4_k_m",
+        name: "llama-3.2-3b-instruct",
+        displayName: "Llama-3.2-3B-Instruct (Q4_K_M)",
+        description: "Meta's Llama 3.2 3B instruction-tuned model. Strong general capabilities, requires 6GB+ RAM.",
+        fileSizeGB: 2.0,
+        requiredRAM: 5.0,
+        format: .gguf,
+        sourceURL: URL(string: "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf"),
+        provider: "Meta",
+        hfRepo: "bartowski/Llama-3.2-3B-Instruct-GGUF",
+        ggufFilename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+        quantization: "Q4_K_M",
+        contextLength: 4096,
+        sha256: nil
     )
     
     /// List of all available models
     static let availableModels: [AIModel] = [
-        .gemma2B,
-        .gemma3B,
-        .phi3Mini
+        .qwen2_5_1_5B,
+        .qwen2_5_3B,
+        .llama3_2_3B
     ]
 }

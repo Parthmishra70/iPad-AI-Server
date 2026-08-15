@@ -11,50 +11,30 @@ struct ModelsView: View {
     @EnvironmentObject var modelManager: ModelManager
     
     var body: some View {
-        NavigationView {
-            List {
-                Section(header: Text("Available Models")) {
-                    ForEach(modelManager.models) { model in
-                        ModelRow(model: model)
-                    }
-                }
-                
-                Section(header: Text("Model Information")) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        InfoItem(icon: "externaldrive.fill", 
-                                title: "Storage Location", 
-                                detail: "App Documents/Models")
-                        
-                        InfoItem(icon: "memorychip", 
-                                title: "Hardware Acceleration", 
-                                detail: "GPU & Neural Engine")
-                        
-                        InfoItem(icon: "wifi.slash", 
-                                title: "Offline Inference", 
-                                detail: "No internet required after download")
-                    }
-                    .padding(.vertical, 8)
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 350, maximum: 450), spacing: 16)], spacing: 16) {
+                ForEach(modelManager.models) { model in
+                    ModelCard(model: model)
                 }
             }
-            .navigationTitle("Models")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: refreshModels) {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
+            .padding(24)
+            
+            // Info Section
+            ModelInfoSection()
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
         }
-    }
-    
-    private func refreshModels() {
-        modelManager.loadSavedModels()
+        .navigationTitle("Models")
+        .background(Color(.systemGroupedBackground))
+        .refreshable {
+            modelManager.loadSavedModels()
+        }
     }
 }
 
-// MARK: - Model Row
+// MARK: - Model Card
 
-struct ModelRow: View {
+struct ModelCard: View {
     @EnvironmentObject var modelManager: ModelManager
     @State private var showDeleteConfirmation = false
     @State private var isDownloading = false
@@ -62,60 +42,83 @@ struct ModelRow: View {
     let model: AIModel
     
     var body: some View {
-        HStack(spacing: 16) {
-            // Model Icon
-            ZStack {
-                Circle()
-                    .fill(modelColor)
-                    .frame(width: 50, height: 50)
-                
-                Image(systemName: modelIcon)
-                    .font(.title3)
-                    .foregroundColor(.white)
-            }
-            
-            // Model Info
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(model.displayName)
-                        .font(.headline)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header with icon and status
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(modelColor)
+                        .frame(width: 56, height: 56)
                     
-                    if modelManager.activeModel?.id == model.id {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                    Image(systemName: modelIcon)
+                        .font(.title2)
+                        .foregroundColor(.white)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(model.displayName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        
+                        if modelManager.activeModel?.id == model.id {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.title3)
+                        }
                     }
-                }
-                
-                Text(model.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                
-                HStack(spacing: 12) {
-                    Label(model.formattedFileSize, systemImage: "externaldrive.fill")
-                    Label(model.formattedRAMRequirement, systemImage: "memorychip")
-                }
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                
-                // Progress bar for downloads
-                if model.state == .downloading {
-                    ProgressView(value: model.downloadProgress)
-                        .progressViewStyle(.linear)
-                        .frame(height: 4)
                     
-                    Text("\(model.progressPercentage) • \(model.formattedDownloadedSize) / \(model.formattedTotalSize)")
-                        .font(.caption2)
+                    Text(model.provider)
+                        .font(.subheadline)
                         .foregroundColor(.secondary)
+                    
+                    Text(model.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
                 }
+                
+                Spacer()
             }
+            .padding(20)
             
-            Spacer()
+            Divider()
+                .padding(.horizontal, 20)
+            
+            // Specs
+            HStack(spacing: 12) {
+                SpecBadge(icon: "externaldrive.fill", text: model.formattedFileSize)
+                SpecBadge(icon: "memorychip", text: model.formattedRAMRequirement)
+                SpecBadge(icon: "number", text: model.quantization)
+                SpecBadge(icon: "text.bubble", text: "\(model.contextLength) ctx")
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            
+            // Progress/State
+            if model.state == .downloading {
+                DownloadProgressView(model: model)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+            } else if model.state == .validating {
+                ValidatingProgressView()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+            } else if model.state == .invalid {
+                InvalidStateView()
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+            }
             
             // Action Button
             ActionButton(model: model, isDownloading: $isDownloading, showDeleteConfirmation: $showDeleteConfirmation)
+                .padding(20)
         }
-        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 3)
+        )
         .confirmationDialog("Delete Model?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 Task {
@@ -128,21 +131,100 @@ struct ModelRow: View {
     }
     
     private var modelColor: Color {
-        switch model.name {
-        case "gemma": return .purple
-        case "gemma-3b": return .indigo
-        case "phi-3-mini": return .blue
+        switch model.provider.lowercased() {
+        case "qwen": return .orange
+        case "meta": return .blue
         default: return .gray
         }
     }
     
     private var modelIcon: String {
-        switch model.name {
-        case "gemma": return "sparkles"
-        case "gemma-3b": return "brain.head.profile"
-        case "phi-3-mini": return "cpu"
+        switch model.provider.lowercased() {
+        case "qwen": return "brain.head.profile"
+        case "meta": return "sparkles"
         default: return "doc"
         }
+    }
+}
+
+struct SpecBadge: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        Label {
+            Text(text)
+                .font(.caption2.weight(.medium))
+        } icon: {
+            Image(systemName: icon)
+                .font(.caption2)
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color(.systemGray6))
+        .cornerRadius(6)
+    }
+}
+
+struct DownloadProgressView: View {
+    let model: AIModel
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            ProgressView(value: model.downloadProgress)
+                .progressViewStyle(.linear)
+                .frame(height: 6)
+                .tint(.blue)
+            
+            HStack {
+                Text("\(model.progressPercentage)")
+                    .font(.caption2.weight(.medium))
+                    .foregroundColor(.blue)
+                
+                Spacer()
+                
+                Text("\(model.formattedDownloadedSize) / \(model.formattedTotalSize)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+struct ValidatingProgressView: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .scaleEffect(0.8)
+            
+            Text("Validating download...")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(8)
+    }
+}
+
+struct InvalidStateView: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.red)
+            
+            Text("Invalid model file")
+                .font(.caption)
+                .foregroundColor(.red)
+            
+            Spacer()
+        }
+        .padding(12)
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(8)
     }
 }
 
@@ -157,49 +239,99 @@ struct ActionButton: View {
     @Binding var showDeleteConfirmation: Bool
     
     var body: some View {
-        Group {
+        HStack(spacing: 12) {
             switch model.state {
             case .notDownloaded:
                 Button(action: startDownload) {
                     Label("Download", systemImage: "arrow.down.circle.fill")
-                        .labelStyle(.iconOnly)
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(isLoading)
                 
             case .downloading:
                 ProgressView()
-                    .scaleEffect(0.8)
+                    .scaleEffect(0.9)
+                    .frame(maxWidth: .infinity)
+                
+            case .validating:
+                ProgressView()
+                    .scaleEffect(0.9)
+                    .frame(maxWidth: .infinity)
+                
+            case .invalid:
+                Button(action: retry) {
+                    Label("Retry Validation", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .foregroundColor(.red)
                 
             case .downloaded, .installed:
                 if modelManager.activeModel?.id == model.id {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Loaded & Active")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(.green)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(10)
                 } else {
                     Button(action: loadModel) {
-                        Label("Load", systemImage: "arrow.up.circle.fill")
-                            .labelStyle(.iconOnly)
+                        Label("Load Model", systemImage: "arrow.up.circle.fill")
+                            .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                     .disabled(isLoading || modelManager.isLoadingModel)
                 }
                 
             case .loading:
                 ProgressView()
-                    .scaleEffect(0.8)
+                    .scaleEffect(0.9)
+                    .frame(maxWidth: .infinity)
                 
             case .loaded:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Loaded & Active")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.green)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.green.opacity(0.1))
+                .cornerRadius(10)
                 
             case .error:
                 Button(action: retry) {
-                    Image(systemName: "arrow.clockwise")
+                    Label("Retry", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
                 
             default:
                 EmptyView()
             }
+            
+            // Delete button for downloaded models
+            if model.isDownloaded && modelManager.activeModel?.id != model.id {
+                Button(action: { showDeleteConfirmation = true }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
         }
-        .buttonStyle(.bordered)
     }
     
     private func startDownload() {
@@ -223,32 +355,70 @@ struct ActionButton: View {
     }
     
     private func retry() {
-        // Reset state and retry
+        if model.state == .invalid {
+            Task {
+                try? await modelManager.installModel(model)
+            }
+        } else if model.state == .error {
+            Task {
+                await modelManager.loadModel(model)
+            }
+        }
     }
 }
 
-// MARK: - Info Item
+// MARK: - Model Info Section
 
-struct InfoItem: View {
+struct ModelInfoSection: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Model Information")
+                .font(.headline)
+            
+            VStack(spacing: 12) {
+                ModelsInfoRow(icon: "externaldrive.fill", title: "Storage Location", detail: "App Documents/Models", color: .blue)
+                ModelsInfoRow(icon: "memorychip", title: "Hardware Acceleration", detail: "Metal GPU (M-series iPads)", color: .orange)
+                ModelsInfoRow(icon: "wifi.slash", title: "Offline Inference", detail: "No internet required after download", color: .green)
+                ModelsInfoRow(icon: "lock.shield", title: "Privacy", detail: "All inference happens locally on device", color: .purple)
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.06), radius: 6, x: 0, y: 3)
+        )
+    }
+}
+
+struct ModelsInfoRow: View {
     let icon: String
     let title: String
     let detail: String
+    let color: Color
     
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(.blue)
-                .frame(width: 30)
+        HStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(color)
+            }
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.bold())
+                    .font(.subheadline.weight(.medium))
                 
                 Text(detail)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+            
+            Spacer()
         }
     }
 }

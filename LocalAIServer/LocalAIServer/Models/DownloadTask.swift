@@ -77,13 +77,14 @@ class DownloadTask: ObservableObject, Identifiable {
 }
 
 /// Manager for active download tasks
-actor DownloadManager {
+class DownloadManager: NSObject, ObservableObject {
     static let shared = DownloadManager()
     
     private var tasks: [String: DownloadTask] = [:]
     private var urlSession: URLSession?
     
-    init() {
+    override init() {
+        super.init()
         setupURLSession()
     }
     
@@ -103,7 +104,9 @@ actor DownloadManager {
         guard let url = model.sourceURL else { return nil }
         
         let task = DownloadTask(modelId: model.id, url: url, destinationURL: destination)
-        tasks[model.id] = task
+        await MainActor.run {
+            tasks[model.id] = task
+        }
         
         guard let session = urlSession else { return nil }
         
@@ -116,16 +119,15 @@ actor DownloadManager {
     
     func pauseDownload(for modelId: String) {
         guard let task = tasks[modelId]?.downloadTask else { return }
-        task.cancel { [weak self] in
-            // Resume data can be used to resume later
-            self?.tasks[modelId]?.state = .paused
-            self?.tasks[modelId]?.canResume = true
+        task.cancel { [weak self] (_) in
+            guard let self else { return }
+            self.tasks[modelId]?.state = .paused
+            self.tasks[modelId]?.canResume = true
         }
     }
     
     func resumeDownload(for modelId: String) {
         guard let task = tasks[modelId], task.canResume else { return }
-        // Implement resume logic with saved resume data
         task.state = .downloading
     }
     
@@ -141,15 +143,14 @@ actor DownloadManager {
 
 // MARK: - URLSessionDownloadDelegate
 extension DownloadManager: URLSessionDownloadDelegate {
-    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, 
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, 
                                  didFinishDownloadingTo location: URL) {
-        // Handle download completion
         Task {
             await handleDownloadCompletion(location: location, task: downloadTask)
         }
     }
     
-    nonisolated func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, 
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, 
                                  didWriteData bytesWritten: Int64, totalBytesWritten: Int64, 
                                  totalBytesExpectedToWrite: Int64) {
         Task {

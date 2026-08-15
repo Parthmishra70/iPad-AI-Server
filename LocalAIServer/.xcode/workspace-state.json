@@ -1,0 +1,49 @@
+{
+  "object" : {
+    "artifacts" : [
+      {
+        "kind" : {
+          "xcframework" : {
+
+          }
+        },
+        "packageRef" : {
+          "identity" : "llama.swift",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/mattt/llama.swift",
+          "name" : "llama.swift"
+        },
+        "path" : "/Users/parthmishra/Desktop/iPad-AI-Server/LocalAIServer/.xcode/artifacts/llama.swift/llama-cpp/llama.xcframework",
+        "source" : {
+          "checksum" : "8fc0ff5be812a4e0965cea0039e0c8efceaa406c3ce7b8fef568e5d01dfb8bd8",
+          "type" : "remote",
+          "url" : "https://github.com/ggml-org/llama.cpp/releases/download/b10442/llama-b10442-xcframework.zip"
+        },
+        "targetName" : "llama-cpp"
+      }
+    ],
+    "dependencies" : [
+      {
+        "basedOn" : null,
+        "packageRef" : {
+          "identity" : "llama.swift",
+          "kind" : "remoteSourceControl",
+          "location" : "https://github.com/mattt/llama.swift",
+          "name" : "llama.swift"
+        },
+        "state" : {
+          "checkoutState" : {
+            "revision" : "54cea39bb69b175548fab922e68650a101319912",
+            "version" : "2.10442.0"
+          },
+          "name" : "sourceControlCheckout"
+        },
+        "subpath" : "llama.swift"
+      }
+    ],
+    "prebuilts" : [
+
+    ]
+  },
+  "version" : 7
+}

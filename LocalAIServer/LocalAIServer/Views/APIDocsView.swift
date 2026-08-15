@@ -9,21 +9,35 @@ import SwiftUI
 
 struct APIDocsView: View {
     @EnvironmentObject var serverManager: ServerManager
+    @EnvironmentObject var apiKeyService: APIKeyService
+    @EnvironmentObject var modelManager: ModelManager
+    
+    private var baseURL: String {
+        serverManager.apiEndpoint ?? "http://YOUR_IPAD_IP:8080"
+    }
+    
+    private var activeModelId: String {
+        modelManager.activeModel?.id ?? "qwen2.5-1.5b-instruct-q4_k_m"
+    }
+    
+    private var apiKey: String {
+        apiKeyService.getKey() ?? "YOUR_API_KEY"
+    }
     
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 // Base URL Section
-                BaseURLSection()
+                BaseURLSection(baseURL: baseURL)
                 
                 // Authentication Section
-                AuthSection()
+                AuthSection(apiKey: apiKey)
                 
                 // Endpoints Section
-                EndpointsSection()
+                EndpointsSection(baseURL: baseURL, modelId: activeModelId, apiKey: apiKey)
                 
                 // Code Examples Section
-                CodeExamplesSection()
+                CodeExamplesSection(baseURL: baseURL, modelId: activeModelId, apiKey: apiKey)
             }
             .padding()
         }
@@ -34,7 +48,7 @@ struct APIDocsView: View {
 // MARK: - Base URL Section
 
 struct BaseURLSection: View {
-    @EnvironmentObject var serverManager: ServerManager
+    let baseURL: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -46,17 +60,11 @@ struct BaseURLSection: View {
                     .foregroundColor(.blue)
             }
             
-            if let endpoint = serverManager.apiEndpoint {
-                CodeBlock(text: endpoint)
-                
-                Text("The base URL for all API requests. Replace with your iPad's IP address.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("Start the server to see the base URL")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            CodeBlock(text: baseURL)
+            
+            Text("The base URL for all API requests. Replace with your iPad's IP address.")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding()
         .background(Color(.systemGray6))
@@ -67,7 +75,7 @@ struct BaseURLSection: View {
 // MARK: - Authentication Section
 
 struct AuthSection: View {
-    @EnvironmentObject var apiKeyService: APIKeyService
+    let apiKey: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -82,22 +90,7 @@ struct AuthSection: View {
             Text("All endpoints except `/health` require API key authentication.")
                 .font(.body)
             
-            CodeBlock(text: "Authorization: Bearer YOUR_API_KEY")
-            
-            if let key = apiKeyService.getKey() {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Your API Key:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
-                    Text(key)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                }
-                .padding(8)
-                .background(Color(.systemBackground))
-                .cornerRadius(8)
-            }
+            CodeBlock(text: "Authorization: Bearer \(apiKey)")
         }
         .padding()
         .background(Color(.systemGray6))
@@ -108,6 +101,10 @@ struct AuthSection: View {
 // MARK: - Endpoints Section
 
 struct EndpointsSection: View {
+    let baseURL: String
+    let modelId: String
+    let apiKey: String
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label {
@@ -127,7 +124,7 @@ struct EndpointsSection: View {
                 exampleResponse: """
                 {
                   "status": "ok",
-                  "model": "gemma",
+                  "model": "\(modelId)",
                   "device": "iPad",
                   "inference": "local"
                 }
@@ -145,7 +142,7 @@ struct EndpointsSection: View {
                   "object": "list",
                   "data": [
                     {
-                      "id": "gemma",
+                      "id": "\(modelId)",
                       "object": "model",
                       "owned_by": "local"
                     }
@@ -162,7 +159,7 @@ struct EndpointsSection: View {
                 requiresAuth: true,
                 requestBody: """
                 {
-                  "model": "gemma",
+                  "model": "\(modelId)",
                   "messages": [
                     {
                       "role": "user",
@@ -304,6 +301,10 @@ struct StreamingInfoCard: View {
 // MARK: - Code Examples Section
 
 struct CodeExamplesSection: View {
+    let baseURL: String
+    let modelId: String
+    let apiKey: String
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Label {
@@ -320,10 +321,10 @@ struct CodeExamplesSection: View {
                 code: """
                 import requests
                 
-                url = "http://192.168.1.20:8080/v1/chat/completions"
+                url = "\(baseURL)/v1/chat/completions"
                 
                 payload = {
-                    "model": "gemma",
+                    "model": "\(modelId)",
                     "messages": [
                         {
                             "role": "user",
@@ -335,7 +336,7 @@ struct CodeExamplesSection: View {
                 }
                 
                 headers = {
-                    "Authorization": "Bearer YOUR_API_KEY",
+                    "Authorization": "Bearer \(apiKey)",
                     "Content-Type": "application/json"
                 }
                 
@@ -349,11 +350,11 @@ struct CodeExamplesSection: View {
             CodeExampleCard(
                 language: "cURL",
                 code: """
-                curl http://192.168.1.20:8080/v1/chat/completions \\
+                curl \(baseURL)/v1/chat/completions \\
                   -H "Content-Type: application/json" \\
-                  -H "Authorization: Bearer YOUR_API_KEY" \\
+                  -H "Authorization: Bearer \(apiKey)" \\
                   -d '{
-                    "model": "gemma",
+                    "model": "\(modelId)",
                     "messages": [
                       {"role": "user", "content": "Hello!"}
                     ],
@@ -369,12 +370,12 @@ struct CodeExamplesSection: View {
                 from openai import OpenAI
                 
                 client = OpenAI(
-                    api_key="YOUR_API_KEY",
-                    base_url="http://192.168.1.20:8080/v1"
+                    api_key="\(apiKey)",
+                    base_url="\(baseURL)/v1"
                 )
                 
                 response = client.chat.completions.create(
-                    model="gemma",
+                    model="\(modelId)",
                     messages=[
                         {"role": "user", "content": "Explain quantum computing"}
                     ]
@@ -427,4 +428,5 @@ struct CodeExampleCard: View {
     APIDocsView()
         .environmentObject(ServerManager.shared)
         .environmentObject(APIKeyService.shared)
+        .environmentObject(ModelManager.shared)
 }

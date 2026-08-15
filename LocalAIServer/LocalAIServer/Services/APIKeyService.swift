@@ -11,7 +11,7 @@ import Security
 /// Service for managing API key storage in Keychain
 @MainActor
 class APIKeyService: ObservableObject {
-    static let shared = APIKeyService.shared
+    static let shared = APIKeyService()
     
     @Published var hasAPIKey: Bool = false
     

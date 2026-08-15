@@ -12,28 +12,36 @@ struct DashboardView: View {
     @EnvironmentObject var serverManager: ServerManager
     
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Server Status Card
-                    ServerStatusCard()
-                    
-                    // Active Model Card
-                    ActiveModelCard()
-                    
-                    // Network Info Card
-                    NetworkInfoCard()
-                    
-                    // Quick Stats
-                    QuickStatsCard()
-                }
-                .padding()
+        ScrollView {
+            LazyVGrid(columns: gridColumns, spacing: 20) {
+                // Server Status Card
+                ServerStatusCard()
+                    .gridCellColumns(gridColumns.count == 1 ? 1 : 2)
+                
+                // Active Model Card
+                ActiveModelCard()
+                
+                // Network Info Card
+                NetworkInfoCard()
+                
+                // Quick Stats
+                QuickStatsCard()
+                    .gridCellColumns(gridColumns.count == 1 ? 1 : 2)
             }
-            .navigationTitle("Dashboard")
-            .refreshable {
-                await serverManager.startServer()
-            }
+            .padding(24)
+            .animation(.easeInOut(duration: 0.3), value: gridColumns.count)
         }
+        .navigationTitle("Dashboard")
+        .refreshable {
+            await serverManager.startServer()
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+    
+    private var gridColumns: [GridItem] {
+        // This will be determined by the geometry reader in practice
+        // For now using adaptive columns that work well on iPad
+        [GridItem(.adaptive(minimum: 380, maximum: 500), spacing: 20)]
     }
 }
 
@@ -43,11 +51,12 @@ struct ServerStatusCard: View {
     @EnvironmentObject var serverManager: ServerManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack {
                 Image(systemName: "server.rack")
                     .font(.title2)
                     .foregroundColor(.blue)
+                    .symbolRenderingMode(.hierarchical)
                 
                 Text("Local AI Server")
                     .font(.title2.bold())
@@ -60,7 +69,7 @@ struct ServerStatusCard: View {
             Divider()
             
             HStack {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 12) {
                     Label {
                         Text(serverManager.isRunning ? "Running" : "Stopped")
                             .fontWeight(.medium)
@@ -75,34 +84,51 @@ struct ServerStatusCard: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
+                    
+                    if serverManager.isRunning {
+                        Label("Ready for requests", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
                 }
                 
                 Spacer()
                 
                 Button(action: toggleServer) {
                     Label(
-                        serverManager.isRunning ? "Stop" : "Start",
+                        serverManager.isRunning ? "Stop Server" : "Start Server",
                         systemImage: serverManager.isRunning ? "stop.fill" : "play.fill"
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
                     .background(serverManager.isRunning ? Color.red : Color.green)
                     .foregroundColor(.white)
-                    .cornerRadius(8)
+                    .cornerRadius(10)
+                    .font(.headline)
                 }
                 .disabled(serverManager.errorMessage != nil)
+                .buttonStyle(.plain)
             }
             
             if let error = serverManager.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                .padding(12)
+                .background(Color.red.opacity(0.1))
+                .cornerRadius(8)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 4)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        )
     }
     
     private func toggleServer() {
@@ -122,59 +148,94 @@ struct ActiveModelCard: View {
     @EnvironmentObject var modelManager: ModelManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Label {
                 Text("Active Model")
                     .font(.headline)
             } icon: {
                 Image(systemName: "brain.head.profile")
                     .foregroundColor(.purple)
+                    .symbolRenderingMode(.hierarchical)
             }
             
             Divider()
             
             if let model = modelManager.activeModel {
-                Text(model.displayName)
-                    .font(.title2.bold())
-                
-                HStack(spacing: 16) {
-                    Label {
-                        Text(model.formattedFileSize)
-                    } icon: {
-                        Image(systemName: "externaldrive.fill")
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(model.displayName)
+                        .font(.title2.bold())
+                        .lineLimit(1)
+                    
+                    HStack(spacing: 16) {
+                        DashboardModelInfoBadge(icon: "externaldrive.fill", text: model.formattedFileSize)
+                        DashboardModelInfoBadge(icon: "number", text: model.quantization)
+                        DashboardModelInfoBadge(icon: "text.bubble", text: "\(model.contextLength) ctx")
                     }
                     
-                    Label {
-                        Text(model.format.rawValue)
-                    } icon: {
-                        Image(systemName: "doc.badge.gearshape")
+                    if modelManager.isLoadingModel {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading model...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
                     }
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                
-                if modelManager.isLoadingModel {
+                    
                     HStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Loading model...")
-                            .font(.caption)
+                        Spacer()
+                        NavigationLink(destination: ModelsView()) {
+                            Label("Manage Models", systemImage: "arrow.right")
+                                .font(.subheadline.weight(.medium))
+                        }
                     }
                 }
             } else {
-                Text("No model loaded")
-                    .foregroundColor(.secondary)
-                
-                NavigationLink(destination: ModelsView()) {
-                    Text("Browse Models")
-                        .font(.caption)
+                VStack(spacing: 16) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    
+                    Text("No model loaded")
+                        .foregroundColor(.secondary)
+                        .font(.headline)
+                    
+                    NavigationLink(destination: ModelsView()) {
+                        Label("Browse Models", systemImage: "arrow.right")
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 4)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        )
+    }
+}
+
+struct DashboardModelInfoBadge: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        Label {
+            Text(text)
+        } icon: {
+            Image(systemName: icon)
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
     }
 }
 
@@ -184,47 +245,65 @@ struct NetworkInfoCard: View {
     @EnvironmentObject var serverManager: ServerManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Label {
                 Text("Network Information")
                     .font(.headline)
             } icon: {
                 Image(systemName: "wifi")
                     .foregroundColor(.orange)
+                    .symbolRenderingMode(.hierarchical)
             }
             
             Divider()
             
             if let ip = serverManager.ipAddress {
-                VStack(alignment: .leading, spacing: 8) {
-                    InfoRow(label: "IP Address", value: ip)
-                    InfoRow(label: "Port", value: "\(serverManager.port)")
-                    InfoRow(label: "API Endpoint", value: serverManager.apiEndpoint ?? "Unknown")
+                VStack(alignment: .leading, spacing: 12) {
+                    DashboardInfoRow(label: "IP Address", value: ip)
+                    DashboardInfoRow(label: "Port", value: "\(serverManager.port)")
+                    DashboardInfoRow(label: "API Endpoint", value: serverManager.apiEndpoint ?? "Unknown")
                 }
                 
                 HStack(spacing: 12) {
                     Button(action: copyEndpoint) {
-                        Label("Copy", systemImage: "doc.on.doc")
+                        Label("Copy Endpoint", systemImage: "doc.on.doc")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                     
                     NavigationLink(destination: QRCodeView(endpoint: serverManager.apiEndpoint ?? "")) {
                         Label("QR Code", systemImage: "qrcode")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .controlSize(.large)
                 }
             } else {
-                Text("Not connected to network")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
+                VStack(spacing: 12) {
+                    Image(systemName: "wifi.slash")
+                        .font(.system(size: 32))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    
+                    Text("Not connected to network")
+                        .foregroundColor(.secondary)
+                        .font(.subheadline)
+                    
+                    Text("Connect to Wi-Fi to enable network access")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 4)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        )
     }
     
     private func copyEndpoint() {
@@ -240,38 +319,49 @@ struct QuickStatsCard: View {
     @EnvironmentObject var serverManager: ServerManager
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             Label {
                 Text("Statistics")
                     .font(.headline)
             } icon: {
                 Image(systemName: "chart.bar.fill")
                     .foregroundColor(.green)
+                    .symbolRenderingMode(.hierarchical)
             }
             
             Divider()
             
-            HStack(spacing: 24) {
-                StatBox(title: "Requests", value: "\(serverManager.requestCount)")
+            HStack(spacing: 0) {
+                StatBox(title: "Total Requests", value: "\(serverManager.requestCount)")
+                
+                Divider()
+                    .padding(.vertical, 16)
+                
                 StatBox(title: "Last Request", value: formatLastRequest())
+                
+                Divider()
+                    .padding(.vertical, 16)
+                
                 StatBox(title: "Uptime", value: formatUptime())
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: .black.opacity(0.1), radius: 4)
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        )
     }
     
     private func formatLastRequest() -> String {
-        guard let last = serverManager.lastRequestTime else { return "-" }
+        guard let last = serverManager.lastRequestTime else { return "—" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: last, relativeTo: Date())
     }
     
     private func formatUptime() -> String {
-        guard let uptime = serverManager.uptime else { return "-" }
+        guard let uptime = serverManager.uptime else { return "—" }
         
         let hours = Int(uptime) / 3600
         let minutes = (Int(uptime) % 3600) / 60
@@ -293,19 +383,26 @@ struct StatusIndicator: View {
     let isRunning: Bool
     
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Circle()
                 .fill(isRunning ? Color.green : Color.red)
                 .frame(width: 8, height: 8)
+                .animation(.easeInOut(duration: 0.2), value: isRunning)
             
             Text(isRunning ? "Running" : "Stopped")
-                .font(.caption)
+                .font(.caption.weight(.medium))
                 .foregroundColor(.secondary)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(isRunning ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+        )
     }
 }
 
-struct InfoRow: View {
+struct DashboardInfoRow: View {
     let label: String
     let value: String
     
@@ -320,6 +417,8 @@ struct InfoRow: View {
             Text(value)
                 .font(.caption.monospaced())
                 .fontWeight(.medium)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 }
@@ -329,51 +428,18 @@ struct StatBox: View {
     let value: String
     
     var body: some View {
-        VStack {
+        VStack(spacing: 6) {
             Text(value)
-                .font(.title3.bold())
+                .font(.title2.bold())
                 .minimumScaleFactor(0.5)
+                .lineLimit(1)
             
             Text(title)
-                .font(.caption2)
+                .font(.caption)
                 .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-struct QRCodeView: View {
-    let endpoint: String
-    
-    var body: some View {
-        VStack(spacing: 20) {
-            Text("Scan to Connect")
-                .font(.title2.bold())
-            
-            // Placeholder for QR code
-            // In production, use a QR code generation library
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
-                    .frame(width: 200, height: 200)
-                
-                VStack {
-                    Image(systemName: "qrcode")
-                        .font(.system(size: 60))
-                        .foregroundColor(.black)
-                    
-                    Text(endpoint)
-                        .font(.caption)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 8)
-                }
-            }
-            
-            Text(endpoint)
-                .font(.caption.monospaced())
-                .textSelection(.enabled)
-        }
-        .padding()
     }
 }
 

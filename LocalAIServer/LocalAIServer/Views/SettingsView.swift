@@ -15,122 +15,130 @@ struct SettingsView: View {
     @AppStorage("enableLogging") private var enableLogging = false
     
     var body: some View {
-        NavigationView {
-            Form {
-                // App Information Section
-                Section(header: Text("About")) {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Build", value: "1")
-                    
-                    Link(destination: URL(string: "https://github.com")!) {
-                        HStack {
-                            Text("Source Code")
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                
-                // Server Settings Section
-                Section(header: Text("Server Settings")) {
-                    Toggle("Enable Request Logging", isOn: $enableLogging)
-                    
-                    if showAdvancedSettings {
-                        Picker("Max Connections", selection: .constant(10)) {
-                            Text("5").tag(5)
-                            Text("10").tag(10)
-                            Text("20").tag(20)
-                            Text("50").tag(50)
-                        }
-                        
-                        Toggle("Verbose Logging", isOn: .constant(false))
-                    }
-                    
-                    Toggle("Show Advanced Settings", isOn: $showAdvancedSettings)
-                }
-                
-                // Storage Section
-                Section(header: Text("Storage")) {
-                    StorageInfoRow(title: "Models Directory", value: "Documents/Models")
-                    StorageInfoRow(title: "Downloaded Models", value: "\(downloadedModelsCount)")
-                    StorageInfoRow(title: "Total Size", value: totalModelsSize)
-                    
-                    Button(role: .destructive) {
-                        clearCache()
-                    } label: {
-                        Label("Clear Cache", systemImage: "trash")
-                    }
-                }
-                
-                // Device Info Section
-                Section(header: Text("Device Information")) {
-                    DeviceInfoRow(label: "Device Name", value: UIDevice.current.name)
-                    DeviceInfoRow(label: "Model", value: deviceModel)
-                    DeviceInfoRow(label: "iOS Version", value: UIDevice.current.systemVersion)
-                    DeviceInfoRow(label: "Memory", value: deviceMemory)
-                }
-                
-                // Privacy & Security Section
-                Section(header: Text("Privacy & Security")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "lock.shield.fill")
-                                .foregroundColor(.green)
-                            Text("Local-Only Access")
-                                .font(.headline)
-                        }
-                        
-                        Text("The server only accepts connections from your local network by default. API key authentication provides an additional layer of security.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "eye.slash.fill")
-                                .foregroundColor(.blue)
-                            Text("No Cloud Processing")
-                                .font(.headline)
-                        }
-                        
-                        Text("All AI inference happens entirely on your device. No prompts or responses are sent to external servers.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                
-                // iPadOS Limitations Section
-                Section(header: Text("Important Notes")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        InfoNote(icon: "clock.fill", iconColor: .orange, text: "Background Execution Limited")
-                        Text("The server may stop when the app is in the background due to iPadOS restrictions. Keep the app active for continuous availability.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        InfoNote(icon: "thermometer.medium.fill", iconColor: .red, text: "Thermal Management")
-                        Text("Extended inference sessions may cause device warming. The app will automatically throttle performance if needed.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        InfoNote(icon: "battery.50", iconColor: .green, text: "Battery Impact")
-                        Text("Running AI inference consumes significant power. Consider keeping your iPad plugged in during extended use.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
+        Form {
+            // About Section
+            Section {
+                AboutCard()
             }
-            .navigationTitle("Settings")
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+            
+            // Server Settings Section
+            Section(header: SettingsSectionHeader(title: "Server Settings", icon: "server.rack", color: .blue)) {
+                Toggle("Enable Request Logging", isOn: $enableLogging)
+                
+                if showAdvancedSettings {
+                    Picker("Max Connections", selection: .constant(10)) {
+                        Text("5").tag(5)
+                        Text("10").tag(10)
+                        Text("20").tag(20)
+                        Text("50").tag(50)
+                    }
+                    
+                    Toggle("Verbose Logging", isOn: .constant(false))
+                }
+                
+                Toggle("Show Advanced Settings", isOn: $showAdvancedSettings)
+            }
+            
+            // Storage Section
+            Section(header: SettingsSectionHeader(title: "Storage", icon: "externaldrive.fill", color: .orange)) {
+                StorageRow(title: "Models Directory", value: "Documents/Models")
+                StorageRow(title: "Downloaded Models", value: "\(downloadedModelsCount)")
+                StorageRow(title: "Total Size", value: totalModelsSize)
+                
+                Button(role: .destructive) {
+                    clearCache()
+                } label: {
+                    Label("Clear Cache", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+            }
+            
+            // Device Info Section
+            Section(header: SettingsSectionHeader(title: "Device Information", icon: "iphone.gen3.radiowaves.left.and.right", color: .purple)) {
+                DeviceInfoRow(label: "Device Name", value: UIDevice.current.name, icon: "iphone", color: .blue)
+                DeviceInfoRow(label: "Model", value: deviceModel, icon: "cpu", color: .orange)
+                DeviceInfoRow(label: "iOS Version", value: UIDevice.current.systemVersion, icon: "gearshape", color: .green)
+                DeviceInfoRow(label: "Available Memory", value: deviceMemory, icon: "memorychip", color: .purple)
+                DeviceInfoRow(label: "Processor", value: "Apple M2", icon: "bolt", color: .red)
+            }
+            
+            // Privacy & Security Section
+            Section(header: SettingsSectionHeader(title: "Privacy & Security", icon: "lock.shield.fill", color: .green)) {
+                PrivacyCard(
+                    icon: "lock.shield.fill",
+                    iconColor: .green,
+                    title: "Local-Only Access",
+                    description: "The server only accepts connections from your local network by default. API key authentication provides an additional layer of security."
+                )
+                
+                PrivacyCard(
+                    icon: "eye.slash.fill",
+                    iconColor: .blue,
+                    title: "No Cloud Processing",
+                    description: "All AI inference happens entirely on your device. No prompts or responses are sent to external servers."
+                )
+                
+                PrivacyCard(
+                    icon: "key.fill",
+                    iconColor: .orange,
+                    title: "API Key Authentication",
+                    description: "Every request (except /health) requires a valid Bearer token. Keys are stored securely in the iOS Keychain."
+                )
+            }
+            
+            // iPadOS Limitations Section
+            Section(header: SettingsSectionHeader(title: "Important Notes", icon: "exclamationmark.triangle", color: .red)) {
+                LimitationCard(
+                    icon: "clock.fill",
+                    iconColor: .orange,
+                    title: "Background Execution Limited",
+                    description: "The server may stop when the app is in the background due to iPadOS restrictions. Keep the app active for continuous availability."
+                )
+                
+                LimitationCard(
+                    icon: "thermometer.medium.fill",
+                    iconColor: .red,
+                    title: "Thermal Management",
+                    description: "Extended inference sessions may cause device warming. The app will automatically throttle performance if needed."
+                )
+                
+                LimitationCard(
+                    icon: "battery.50",
+                    iconColor: .green,
+                    title: "Battery Impact",
+                    description: "Running AI inference consumes significant power. Consider keeping your iPad plugged in during extended use."
+                )
+            }
+            
+            // Version Info
+            Section {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 4) {
+                        Text("Local AI Server")
+                            .font(.headline)
+                        Text("Version 1.0.0 (Build 1)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Powered by llama.cpp & Metal")
+                            .font(.caption2)
+                            .foregroundColor(.secondary.opacity(0.7))
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 16)
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         }
+        .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
     }
     
     // MARK: - Computed Properties
@@ -163,8 +171,9 @@ struct SettingsView: View {
     }
     
     private var deviceMemory: String {
-        // This is an approximation since iOS doesn't expose exact RAM
-        return "4-16 GB (varies by model)"
+        let physicalMemory = ProcessInfo.processInfo.physicalMemory
+        let gb = Double(physicalMemory) / (1024 * 1024 * 1024)
+        return String(format: "%.0f GB", gb)
     }
     
     // MARK: - Actions
@@ -176,7 +185,87 @@ struct SettingsView: View {
 
 // MARK: - Helper Views
 
-struct StorageInfoRow: View {
+struct SettingsSectionHeader: View {
+    let title: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+            Text(title)
+                .font(.headline)
+        }
+    }
+}
+
+struct AboutCard: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 80, height: 80)
+                    .shadow(color: .blue.opacity(0.3), radius: 12, x: 0, y: 6)
+                
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundColor(.white)
+            }
+            
+            VStack(spacing: 6) {
+                Text("Local AI Server")
+                    .font(.title2.bold())
+                
+                Text("Run AI models locally on your iPad with an OpenAI-compatible API")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            HStack(spacing: 16) {
+                FeatureBadge(icon: "server.rack", text: "Local API")
+                FeatureBadge(icon: "lock.shield", text: "Private")
+                FeatureBadge(icon: "wifi.slash", text: "Offline")
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 4)
+        )
+    }
+}
+
+struct FeatureBadge: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.caption)
+            Text(text)
+                .font(.caption.weight(.medium))
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+}
+
+struct StorageRow: View {
     let title: String
     let value: String
     
@@ -186,6 +275,7 @@ struct StorageInfoRow: View {
             Spacer()
             Text(value)
                 .foregroundColor(.secondary)
+                .fontWeight(.medium)
         }
     }
 }
@@ -193,24 +283,96 @@ struct StorageInfoRow: View {
 struct DeviceInfoRow: View {
     let label: String
     let value: String
+    let icon: String
+    let color: Color
     
     var body: some View {
-        LabeledContent(label, value: value)
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(color)
+            }
+            
+            Text(label)
+                .foregroundColor(.primary)
+            
+            Spacer()
+            
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
     }
 }
 
-struct InfoNote: View {
+struct PrivacyCard: View {
     let icon: String
     let iconColor: Color
-    let text: String
+    let title: String
+    let description: String
     
     var body: some View {
-        HStack {
-            Image(systemName: icon)
-                .foregroundColor(iconColor)
-            Text(text)
-                .font(.subheadline.bold())
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(iconColor.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(iconColor)
+            }
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.bold())
+                
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .padding(.vertical, 8)
+    }
+}
+
+struct LimitationCard: View {
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let description: String
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(iconColor.opacity(0.15))
+                        .frame(width: 32, height: 32)
+                    
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(iconColor)
+                }
+                
+                Text(title)
+                    .font(.subheadline.bold())
+            }
+            
+            Text(description)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.leading, 42)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 8)
     }
 }
 

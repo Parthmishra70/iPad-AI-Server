@@ -7,6 +7,8 @@
 
 import Foundation
 import Combine
+import LlamaSwift
+import CryptoKit
 
 /// Manager for AI model lifecycle operations
 @MainActor
@@ -34,11 +36,8 @@ class ModelManager: ObservableObject {
     // MARK: - Initialization
     
     func loadSavedModels() {
-        // Load model states from disk
-        // For now, initialize with available models
         models = AIModel.availableModels
         
-        // Check which models are already downloaded
         for i in 0..<models.count {
             let modelPath = getModelPath(for: models[i])
             if fileManager.fileExists(atPath: modelPath.path) {
@@ -47,9 +46,9 @@ class ModelManager: ObservableObject {
             }
         }
         
-        // Try to load the last active model
         if let savedModelId = UserDefaults.standard.string(forKey: "activeModelId") {
-            if let model = models.first(where: { $0.id == savedModelId && model.isDownloaded }) {
+            let model = models.first { $0.id == savedModelId && $0.isDownloaded }
+            if let model {
                 Task {
                     await loadModel(model)
                 }
@@ -66,7 +65,7 @@ class ModelManager: ObservableObject {
     // MARK: - Model Path Management
     
     func getModelPath(for model: AIModel) -> URL {
-        return modelsDirectory.appendingPathComponent("\(model.id).litert-model")
+        return modelsDirectory.appendingPathComponent("\(model.id).gguf")
     }
     
     // MARK: - Download Operations
@@ -80,16 +79,24 @@ class ModelManager: ObservableObject {
             if let index = self.models.firstIndex(where: { $0.id == model.id }) {
                 self.models[index].state = .downloading
                 self.models[index].downloadProgress = 0.0
+                self.models[index].errorMessage = nil
             }
         }
         
         let destinationURL = getModelPath(for: model)
         
-        // Use URLSession for downloading with progress tracking
         let (tempURL, response) = try await URLSession.shared.download(from: url)
         
-        // Move to final destination
+        if let httpResponse = response as? HTTPURLResponse {
+            guard httpResponse.statusCode == 200 else {
+                throw ModelError.downloadFailed
+            }
+        }
+        
         try fileManager.moveItem(at: tempURL, to: destinationURL)
+        
+        // Validate the downloaded file
+        try await validateDownload(model, at: destinationURL)
         
         DispatchQueue.main.async {
             if let index = self.models.firstIndex(where: { $0.id == model.id }) {
@@ -101,7 +108,6 @@ class ModelManager: ObservableObject {
     }
     
     func pauseDownload(for model: AIModel) {
-        // Implement pause functionality
     }
     
     func resumeDownload(for model: AIModel) async throws {
@@ -109,7 +115,52 @@ class ModelManager: ObservableObject {
     }
     
     func cancelDownload(for model: AIModel) {
-        // Implement cancel functionality
+    }
+    
+    // MARK: - Download Validation
+    
+    private func validateDownload(_ model: AIModel, at url: URL) async throws {
+        DispatchQueue.main.async {
+            if let index = self.models.firstIndex(where: { $0.id == model.id }) {
+                self.models[index].state = .validating
+            }
+        }
+        
+        try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            let attrs = try fileManager.attributesOfItem(atPath: url.path)
+            let fileSize = attrs[.size] as? UInt64 ?? 0
+            let expectedSize = UInt64(model.fileSizeGB * 1024 * 1024 * 1024)
+            
+            if expectedSize > 0 {
+                let ratio = Double(fileSize) / Double(expectedSize)
+                if ratio < 0.98 || ratio > 1.02 {
+                    throw ModelError.installationFailed
+                }
+            }
+            
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            
+            let magic = try handle.read(upToCount: 4) ?? Data()
+            guard magic == Data([0x47, 0x47, 0x55, 0x46]) else {
+                throw ModelError.installationFailed
+            }
+            
+            if let sha256 = model.sha256 {
+                let data = try Data(contentsOf: url)
+                let computed = data.sha256()
+                if computed.lowercased() != sha256.lowercased() {
+                    throw ModelError.installationFailed
+                }
+            }
+        }.value
+        
+        DispatchQueue.main.async {
+            if let index = self.models.firstIndex(where: { $0.id == model.id }) {
+                self.models[index].state = .installed
+            }
+        }
     }
     
     // MARK: - Model Installation
@@ -119,21 +170,18 @@ class ModelManager: ObservableObject {
             throw ModelError.modelNotDownloaded
         }
         
+        let modelPath = getModelPath(for: model)
+        guard fileManager.fileExists(atPath: modelPath.path) else {
+            throw ModelError.downloadFailed
+        }
+        
         DispatchQueue.main.async {
             if let index = self.models.firstIndex(where: { $0.id == model.id }) {
                 self.models[index].state = .installing
             }
         }
         
-        // For LiteRT models, installation may involve validation
-        // This is a placeholder for actual installation logic
-        try await Task.sleep(nanoseconds: 1_000_000_000) // Simulate installation
-        
-        DispatchQueue.main.async {
-            if let index = self.models.firstIndex(where: { $0.id == model.id }) {
-                self.models[index].state = .installed
-            }
-        }
+        try await validateDownload(model, at: modelPath)
     }
     
     // MARK: - Model Loading/Unloading
@@ -150,8 +198,7 @@ class ModelManager: ObservableObject {
         }
         
         do {
-            // Initialize inference engine with the model
-            let engine = LiteRTInferenceEngine()
+            let engine = LlamaCppInferenceEngine()
             try await engine.loadModel(at: getModelPath(for: model))
             
             DispatchQueue.main.async {
@@ -164,7 +211,6 @@ class ModelManager: ObservableObject {
                     self.models[index].state = .loaded
                 }
                 
-                // Save active model preference
                 UserDefaults.standard.set(model.id, forKey: "activeModelId")
             }
         } catch {
@@ -207,7 +253,6 @@ class ModelManager: ObservableObject {
                 self.models[index].downloadProgress = 0.0
             }
             
-            // If this was the active model, unload it
             if self.activeModelId == model.id {
                 Task {
                     await self.unloadModel()
@@ -223,9 +268,8 @@ class ModelManager: ObservableObject {
             throw ModelError.noModelLoaded
         }
         
-        return try await engine.generate(prompt: formatMessages(messages), 
-                                         temperature: temperature, 
-                                         maxTokens: maxTokens)
+        let prompt = await formatMessagesForModel(messages, model: activeModel)
+        return try await engine.generate(prompt: prompt, temperature: temperature, maxTokens: maxTokens)
     }
     
     func streamResponse(messages: [ChatMessage], temperature: Double, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
@@ -235,15 +279,84 @@ class ModelManager: ObservableObject {
             }
         }
         
-        return engine.streamGenerate(prompt: formatMessages(messages),
-                                     temperature: temperature,
-                                     maxTokens: maxTokens)
+        let model = activeModel
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let prompt = await self.formatMessagesForModel(messages, model: model)
+                    for try await token in engine.streamGenerate(prompt: prompt, temperature: temperature, maxTokens: maxTokens) {
+                        try Task.checkCancellation()
+                        continuation.yield(token)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
     
-    private func formatMessages(_ messages: [ChatMessage]) -> String {
-        // Format chat messages into a prompt string
-        // This depends on the model's expected format
-        return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
+    private func formatMessagesForModel(_ messages: [ChatMessage], model: AIModel?) async -> String {
+        guard let model = model,
+              let modelPtr = await getModelPointer(for: model) else {
+            return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
+        }
+        
+        return await Task.detached(priority: .userInitiated) {
+            var llamaMessages = [llama_chat_message]()
+            for msg in messages {
+                var cm = llama_chat_message()
+                cm.role = UnsafePointer<CChar>(strdup(msg.role))
+                cm.content = UnsafePointer<CChar>(strdup(msg.content))
+                llamaMessages.append(cm)
+            }
+            
+            // Get the chat template from the model
+            let template = llama_model_chat_template(modelPtr, nil)
+            guard template != nil else {
+                for m in llamaMessages { free(UnsafeMutableRawPointer(mutating: m.role)); free(UnsafeMutableRawPointer(mutating: m.content)) }
+                return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
+            }
+            
+            // First call to get the required buffer size
+            let formattedSize = llama_chat_apply_template(
+                template,
+                llamaMessages,
+                llamaMessages.count,
+                true,
+                nil,
+                0
+            )
+            
+            guard formattedSize >= 0 else {
+                for m in llamaMessages { free(UnsafeMutableRawPointer(mutating: m.role)); free(UnsafeMutableRawPointer(mutating: m.content)) }
+                return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
+            }
+            
+            // Allocate buffer and apply template
+            var buffer = [CChar](repeating: 0, count: Int(formattedSize) + 1)
+            let nWritten = llama_chat_apply_template(
+                template,
+                llamaMessages,
+                llamaMessages.count,
+                true,
+                &buffer,
+                Int32(buffer.count)
+            )
+            
+            for m in llamaMessages { free(UnsafeMutableRawPointer(mutating: m.role)); free(UnsafeMutableRawPointer(mutating: m.content)) }
+            
+            if nWritten >= 0 {
+                return String(cString: buffer)
+            }
+            
+            return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
+        }.value
+    }
+    
+    private func getModelPointer(for model: AIModel) async -> OpaquePointer? {
+        guard let engine = inferenceEngine as? LlamaCppInferenceEngine else { return nil }
+        return await engine.getModelPointer()
     }
     
     // MARK: - Active Model
@@ -272,8 +385,17 @@ enum ModelError: LocalizedError {
         case .modelNotInstalled: return "Model must be installed first"
         case .noModelLoaded: return "No model is currently loaded"
         case .downloadFailed: return "Download failed"
-        case .installationFailed: return "Installation failed"
+        case .installationFailed: return "Installation failed (validation failed)"
         case .loadingFailed: return "Failed to load model"
         }
+    }
+}
+
+// MARK: - Data Extension for SHA256
+
+extension Data {
+    func sha256() -> String {
+        let hash = SHA256.hash(data: self)
+        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 }

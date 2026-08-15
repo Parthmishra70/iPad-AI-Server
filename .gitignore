@@ -1,46 +1,68 @@
-```
-# Xcode project files
-*.xcodeproj/
-*.xcworkspace/
-*.pbxuser
-*.mode1v3
-*.perspectivev3
-*.xcuserstate
-project.xcworkspace/
-xcuserdata/
-
-# Swift build artifacts
-*.swiftmodule/
-*.swiftdoc
+```swift
+# Build artifacts
+*.o
+*.obj
 *.dylib
-*.framework
+*.so
+*.a
+*.lib
+*.dll
 
-# Build directories
+# Xcode/Swift build files
+*.swiftmodule
+*.swiftdoc
+*.dSYM/
 build/
 DerivedData/
+
+# Dependencies
+Packages/
+.build/
+.swiftpm/
 
 # Environment
 .env
 .env.local
-.env.*
+*.env.*
 
-# Dependencies
-node_modules/
-Pods/
-Carthage/
-Vendor/
-
-# Logs
+# Logs and temp files
 *.log
+*.tmp
+*.swp
 
-# OS generated files
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.swp
-*~
-```.next/
-dist/
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Python (if applicable)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.nox/
+```
+
+Wait, let me reconsider. The file changes only include Swift source files (.swift), Markdown files (.md), and no build artifacts, dependency directories, or temporary files. This appears to be a clean source code project without any artifacts that need ignoring.
+
+(empty)node_modules/
 .next/
+dist/

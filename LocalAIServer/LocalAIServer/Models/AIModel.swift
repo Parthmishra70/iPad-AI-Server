@@ -81,6 +81,23 @@ struct AIModel: Identifiable, Codable, Equatable {
     var formattedRAMRequirement: String {
         return String(format: "%.1f GB", requiredRAM)
     }
+    
+    /// Formatted progress percentage string
+    var progressPercentage: String {
+        return String(format: "%.1f%%", downloadProgress * 100)
+    }
+    
+    /// Formatted downloaded size string
+    var formattedDownloadedSize: String {
+        let bytes = Int64(downloadProgress * Double(fileSizeGB) * 1024 * 1024 * 1024)
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+    
+    /// Formatted total size string
+    var formattedTotalSize: String {
+        let bytes = Int64(fileSizeGB * 1024 * 1024 * 1024)
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
 }
 
 /// Extension for predefined models

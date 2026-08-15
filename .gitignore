@@ -66,3 +66,4 @@ Wait, let me reconsider. The file changes only include Swift source files (.swif
 (empty)node_modules/
 .next/
 dist/
+node_modules/

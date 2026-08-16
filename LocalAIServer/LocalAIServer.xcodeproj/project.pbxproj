@@ -18,15 +18,20 @@
 		A1000008 /* AIModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* AIModel.swift */; };
 		A1000009 /* DownloadTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* DownloadTask.swift */; };
 		A1000010 /* ServerConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000010 /* ServerConfig.swift */; };
+		42000001 /* ChatMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA6CF72 /* ChatMessage.swift */; };
 		A1000011 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011 /* ModelManager.swift */; };
 		A1000012 /* InferenceEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* InferenceEngine.swift */; };
 		A1000013 /* HTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* HTTPServer.swift */; };
 		A1000014 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014 /* NetworkManager.swift */; };
 		A1000015 /* APIKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015 /* APIKeyService.swift */; };
+		A1000021 /* HuggingFaceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000021 /* HuggingFaceService.swift */; };
+		A1000022 /* ModelDownloadDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000022 /* ModelDownloadDelegate.swift */; };
 		A1000016 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016 /* Constants.swift */; };
 		A1000017 /* Resources/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000017 /* Resources/Assets.xcassets */; };
-		A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019 /* QRCodeView.swift */; };
+A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019 /* QRCodeView.swift */; };
 		A1000019 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020 /* ChatView.swift */; };
+		B1000001 /* SkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3F8D1 /* SkeletonView.swift */; };
+		41000001 /* ErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41907551 /* ErrorBanner.swift */; };
 		C1000001 /* Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001 /* Capabilities.swift */; };
 		C1000002 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000002 /* Config.swift */; };
 		C1000003 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000003 /* Conversation.swift */; };
@@ -52,16 +57,21 @@
 		A2000008 /* AIModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIModel.swift; sourceTree = "<group>"; };
 		A2000009 /* DownloadTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadTask.swift; sourceTree = "<group>"; };
 		A2000010 /* ServerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfig.swift; sourceTree = "<group>"; };
+		4EA6CF72 /* ChatMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMessage.swift; sourceTree = "<group>"; };
 		A2000011 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
 		A2000012 /* InferenceEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEngine.swift; sourceTree = "<group>"; };
 		A2000013 /* HTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPServer.swift; sourceTree = "<group>"; };
 		A2000014 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		A2000015 /* APIKeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIKeyService.swift; sourceTree = "<group>"; };
+		A2000021 /* HuggingFaceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HuggingFaceService.swift; sourceTree = "<group>"; };
+		A2000022 /* ModelDownloadDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDownloadDelegate.swift; sourceTree = "<group>"; };
 		A2000016 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		A2000017 /* Resources/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Resources/Assets.xcassets; sourceTree = "<group>"; };
 		A2000018 /* LocalAIServer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalAIServer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000019 /* QRCodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeView.swift; sourceTree = "<group>"; };
 		A2000020 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		BFB3F8D1 /* SkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonView.swift; sourceTree = "<group>"; };
+		41907551 /* ErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBanner.swift; sourceTree = "<group>"; };
 		A3000001 /* LocalAIServer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LocalAIServer.entitlements; sourceTree = "<group>"; };
 		C2000001 /* Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Capabilities.swift; sourceTree = "<group>"; };
 		C2000002 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
@@ -145,6 +155,8 @@
 				A2000007 /* SettingsView.swift */,
 				A2000019 /* QRCodeView.swift */,
 				A2000020 /* ChatView.swift */,
+				BFB3F8D1 /* SkeletonView.swift */,
+				41907551 /* ErrorBanner.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -164,20 +176,23 @@
 			isa = PBXGroup;
 			children = (
 				A2000015 /* APIKeyService.swift */,
+				A2000021 /* HuggingFaceService.swift */,
+				A2000022 /* ModelDownloadDelegate.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
 		};
-		A5000009 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				A2000008 /* AIModel.swift */,
-				A2000009 /* DownloadTask.swift */,
-				A2000010 /* ServerConfig.swift */,
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
+A5000009 /* Models */ = {
+		isa = PBXGroup;
+		children = (
+			A2000008 /* AIModel.swift */,
+			A2000009 /* DownloadTask.swift */,
+			A2000010 /* ServerConfig.swift */,
+			4EA6CF72 /* ChatMessage.swift */,
+		);
+		path = Models;
+		sourceTree = "<group>";
+	};
 		A5000010 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
@@ -271,15 +286,20 @@
 				A1000008 /* AIModel.swift in Sources */,
 				A1000009 /* DownloadTask.swift in Sources */,
 				A1000010 /* ServerConfig.swift in Sources */,
+				42000001 /* ChatMessage.swift in Sources */,
 				A1000011 /* ModelManager.swift in Sources */,
 				A1000012 /* InferenceEngine.swift in Sources */,
 				A1000013 /* HTTPServer.swift in Sources */,
 				A1000014 /* NetworkManager.swift in Sources */,
 				A1000015 /* APIKeyService.swift in Sources */,
+				A1000021 /* HuggingFaceService.swift in Sources */,
+				A1000022 /* ModelDownloadDelegate.swift in Sources */,
 				A1000016 /* Constants.swift in Sources */,
-				A1000018 /* QRCodeView.swift in Sources */,
-				A1000019 /* ChatView.swift in Sources */,
-			);
+			A1000018 /* QRCodeView.swift in Sources */,
+			A1000019 /* ChatView.swift in Sources */,
+			B1000001 /* SkeletonView.swift in Sources */,
+			41000001 /* ErrorBanner.swift in Sources */,
+		);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

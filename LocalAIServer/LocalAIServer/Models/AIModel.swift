@@ -124,7 +124,7 @@ extension AIModel {
         name: "qwen2.5-1.5b-instruct",
         displayName: "Qwen2.5-1.5B-Instruct (Q4_K_M)",
         description: "Qwen2.5 1.5B parameter instruction-tuned model. Excellent balance of speed and quality for iPad. Q4_K_M quantization fits in ~3GB RAM.",
-        fileSizeGB: 1.2,
+        fileSizeGB: 1.1,
         requiredRAM: 3.0,
         format: .gguf,
         sourceURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"),
@@ -178,4 +178,32 @@ extension AIModel {
         .qwen2_5_3B,
         .llama3_2_3B
     ]
+
+    /// Build an AIModel from a HuggingFace repo + a chosen GGUF file.
+    /// Used by the live search in ModelsView when the user picks a custom model.
+    static func fromHuggingFace(repoId: String, file: HuggingFaceFile) -> AIModel {
+        let sizeGB = file.sizeGB ?? 0
+        // RAM heuristic: GGUF Q4 ≈ file size * 1.5 for weights + KV cache.
+        let requiredRAM = max(2.0, (sizeGB * 1.5).rounded(.up))
+        let sanitizedId = "\(repoId.replacingOccurrences(of: "/", with: "_"))__\(file.filename)"
+            .replacingOccurrences(of: ".gguf", with: "")
+        let author = repoId.split(separator: "/").first.map(String.init) ?? ""
+        let description = "\(file.filename) (\(file.quantization)) — \(String(format: "%.2f GB", sizeGB)) from \(repoId)"
+        return AIModel(
+            id: sanitizedId,
+            name: file.filename,
+            displayName: "\(repoId.split(separator: "/").last.map(String.init) ?? repoId) (\(file.quantization))",
+            description: description,
+            fileSizeGB: sizeGB,
+            requiredRAM: requiredRAM,
+            format: .gguf,
+            sourceURL: HuggingFaceService.shared.resolveDownload(repoId: repoId, filename: file.filename),
+            provider: author,
+            hfRepo: repoId,
+            ggufFilename: file.filename,
+            quantization: file.quantization,
+            contextLength: 4096,
+            sha256: nil
+        )
+    }
 }

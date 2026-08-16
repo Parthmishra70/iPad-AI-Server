@@ -23,7 +23,7 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
     private var context: OpaquePointer?
     private var vocab: OpaquePointer?
     private var modelPath: URL?
-    private let nCtx: UInt32 = 2048
+    private let nCtx: UInt32 = 4096
     private var isLoaded: Bool = false
     
     private let queue = DispatchQueue(label: "com.localaiserver.llama", qos: .userInitiated)
@@ -84,12 +84,19 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
             guard !tokens.isEmpty else {
                 throw InferenceError.tokenizationFailed
             }
-            
-            // Create batch for prefill
-            var batch = llama_batch_get_one(&tokens, Int32(tokens.count))
-            
-            if llama_decode(context, batch) != 0 {
-                throw InferenceError.inferenceFailed
+
+            // Prefill in chunks no larger than n_batch to avoid
+            // llama_decode failures when the prompt is long.
+            let batchSize = 512
+            var idx = 0
+            while idx < tokens.count {
+                let take = min(batchSize, tokens.count - idx)
+                var chunk = Array(tokens[idx..<(idx + take)])
+                var prefillBatch = llama_batch_get_one(&chunk, Int32(chunk.count))
+                if llama_decode(context, prefillBatch) != 0 {
+                    throw InferenceError.inferenceFailed
+                }
+                idx += take
             }
             
             // Initialize sampler chain
@@ -122,9 +129,9 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
                 
                 // Create batch for next token
                 var nextTokens = [token]
-                batch = llama_batch_get_one(&nextTokens, 1)
-                
-                if llama_decode(context, batch) != 0 {
+                let nextBatch = llama_batch_get_one(&nextTokens, 1)
+
+                if llama_decode(context, nextBatch) != 0 {
                     break
                 }
                 
@@ -152,12 +159,20 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
                         continuation.finish(throwing: InferenceError.tokenizationFailed)
                         return
                     }
-                    
-                    var batch = llama_batch_get_one(&tokens, Int32(tokens.count))
-                    
-                    if llama_decode(context, batch) != 0 {
-                        continuation.finish(throwing: InferenceError.inferenceFailed)
-                        return
+
+                    // Prefill in chunks no larger than n_batch to avoid
+                    // llama_decode failures when the prompt is long.
+                    let batchSize = 512
+                    var idx = 0
+                    while idx < tokens.count {
+                        let take = min(batchSize, tokens.count - idx)
+                        var chunk = Array(tokens[idx..<(idx + take)])
+                        var prefillBatch = llama_batch_get_one(&chunk, Int32(chunk.count))
+                        if llama_decode(context, prefillBatch) != 0 {
+                            continuation.finish(throwing: InferenceError.inferenceFailed)
+                            return
+                        }
+                        idx += take
                     }
                     
 let sparams = llama_sampler_chain_default_params()
@@ -189,9 +204,9 @@ let sparams = llama_sampler_chain_default_params()
                         }
                         
                         var nextTokens = [token]
-                        batch = llama_batch_get_one(&nextTokens, 1)
-                        
-                        if llama_decode(context, batch) != 0 {
+                        let nextBatch = llama_batch_get_one(&nextTokens, 1)
+
+                        if llama_decode(context, nextBatch) != 0 {
                             break
                         }
                         
@@ -208,16 +223,25 @@ let sparams = llama_sampler_chain_default_params()
     }
     
     func unload() async {
-        let (model, context) = getModelAndContext()
-        
+        // Free and clear under the lock so no other thread can grab
+        // the pointers between retrieval and release.
+        let (model, context) = queue.sync { () -> (OpaquePointer?, OpaquePointer?) in
+            let m = self.model
+            let c = self.context
+            self.model = nil
+            self.context = nil
+            self.vocab = nil
+            self.isLoaded = false
+            return (m, c)
+        }
+
         if let context = context {
             llama_free(context)
         }
         if let model = model {
             llama_model_free(model)
         }
-        
-        setUnloaded()
+
         llama_backend_free()
         print("Model unloaded")
     }

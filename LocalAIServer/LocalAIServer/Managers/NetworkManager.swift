@@ -23,16 +23,19 @@ class NetworkManager {
         var ptr = ifaddr
         while ptr != nil {
             defer { ptr = ptr?.pointee.ifa_next }
-            
+
             let interface = ptr!.pointee
-            let addrFamily = interface.ifa_addr.pointee.sa_family
-            
+
+            guard let ifaAddr = interface.ifa_addr else { continue }
+
+            let addrFamily = ifaAddr.pointee.sa_family
+
             if addrFamily == UInt8(AF_INET) {
                 let name = String(cString: interface.ifa_name)
                 // en0 is typically Wi-Fi on iPad
                 if name == "en0" || name == "en1" {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                    getnameinfo(ifaAddr, socklen_t(ifaAddr.pointee.sa_len),
                                &hostname, socklen_t(hostname.count), nil, socklen_t(0), NI_NUMERICHOST)
                     address = String(cString: hostname)
                 }
@@ -72,17 +75,19 @@ class NetworkManager {
         var ptr = ifaddr
         while ptr != nil {
             defer { ptr = ptr?.pointee.ifa_next }
-            
+
             let interface = ptr!.pointee
             let name = String(cString: interface.ifa_name)
-            
-            let addrFamily = interface.ifa_addr.pointee.sa_family
+
+            guard let ifaAddr = interface.ifa_addr else { continue }
+
+            let addrFamily = ifaAddr.pointee.sa_family
             if addrFamily == UInt8(AF_INET) {
                 var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                getnameinfo(ifaAddr, socklen_t(ifaAddr.pointee.sa_len),
                            &hostname, socklen_t(hostname.count), nil, socklen_t(0), NI_NUMERICHOST)
                 let address = String(cString: hostname)
-                
+
                 interfaces.append(NetworkInterface(name: name, address: address))
             }
         }

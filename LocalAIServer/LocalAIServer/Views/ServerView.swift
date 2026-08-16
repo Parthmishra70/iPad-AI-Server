@@ -16,6 +16,7 @@ struct ServerView: View {
     @State private var showAPIKey = false
     @State private var generatedKey: String = ""
     @State private var showPortError = false
+    @State private var portDebounceTask: Task<Void, Never>?
     
     var body: some View {
         Form {
@@ -235,15 +236,21 @@ struct ServerView: View {
     }
     
     private func updatePort(_ value: String) {
-        guard let port = Int(value), port > 0 && port < 65536 else { 
+        guard let port = Int(value), port > 0 && port < 65536 else {
             if !value.isEmpty { showPortError = true }
-            return 
+            return
         }
-        serverManager.port = port
-        serverManager.saveConfiguration()
-        
-        if serverManager.isRunning {
-            Task {
+
+        // Debounce server restart so rapid typing doesn't flap the listener.
+        portDebounceTask?.cancel()
+        portDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if Task.isCancelled { return }
+
+            serverManager.port = port
+            serverManager.saveConfiguration()
+
+            if serverManager.isRunning {
                 await serverManager.stopServer()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 await serverManager.startServer()
@@ -308,7 +315,7 @@ struct ServerStatusHeader: View {
         VStack(spacing: 16) {
             HStack(spacing: 16) {
                 Circle()
-                    .fill(serverManager.isRunning ? Color.green : Color.red)
+                    .fill(serverManager.isRunning ? Color(.systemGreen) : Color(.systemRed))
                     .frame(width: 16, height: 16)
                     .animation(.easeInOut(duration: 0.2), value: serverManager.isRunning)
                 

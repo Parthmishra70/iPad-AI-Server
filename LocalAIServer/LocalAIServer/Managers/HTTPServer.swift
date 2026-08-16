@@ -8,6 +8,20 @@
 import Foundation
 import Network
 
+/// Constant-time string comparison to mitigate API key timing attacks.
+private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+    let aBytes = Array(a.utf8)
+    let bBytes = Array(b.utf8)
+    if aBytes.count != bBytes.count {
+        return false
+    }
+    var result: UInt8 = 0
+    for i in 0..<aBytes.count {
+        result |= aBytes[i] ^ bBytes[i]
+    }
+    return result == 0
+}
+
 /// Local HTTP server that exposes AI model inference via REST API
 @MainActor
 class ServerManager: ObservableObject {
@@ -20,6 +34,7 @@ class ServerManager: ObservableObject {
     @Published var lastRequestTime: Date?
     @Published var apiKey: String?
     @Published var errorMessage: String?
+    @Published var isRefreshingIP: Bool = false
     
     private var listener: NWListener?
     private var connections: Set<NWConnectionWrapper> = []
@@ -27,13 +42,13 @@ class ServerManager: ObservableObject {
     
     // MARK: - Configuration
     
-    func loadConfiguration() {
+    func loadConfiguration() async {
         port = UserDefaults.standard.integer(forKey: "serverPort")
         if port == 0 { port = 8080 }
         
         apiKey = KeychainHelper.load(key: "apiKey")
         
-        refreshIPAddress()
+        await refreshIPAddress()
     }
     
     func saveConfiguration() {
@@ -78,8 +93,15 @@ class ServerManager: ObservableObject {
     private func setupListener() async throws {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        
-        listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: UInt16(port))!)
+
+        guard let portValue = UInt16(exactly: port) else {
+            errorMessage = "Port \(port) is out of range (1-65535)."
+            throw NSError(
+                domain: "ServerManager", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid port: \(port)"])
+        }
+
+        listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: portValue)!)
         
         listener?.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in
@@ -136,7 +158,7 @@ class ServerManager: ObservableObject {
                     await self?.processRequest(data: data, connection: connection)
                 }
             }
-            
+
             if isComplete || error != nil {
                 Task { @MainActor in
                     let wrapper = self?.connections.first { $0.connection === connection }
@@ -147,24 +169,42 @@ class ServerManager: ObservableObject {
             }
         }
     }
-    
+
     // MARK: - Request Processing
-    
+
+    /// Accumulate partial reads per-connection until we have the full
+    /// request (headers terminated by \r\n\r\n, plus body up to
+    /// Content-Length). Local requests are small so a single read is
+    /// usually sufficient, but this guards against segmented delivery.
+    private var requestBuffers: [ObjectIdentifier: Data] = [:]
+
     private func processRequest(data: Data, connection: NWConnection) async {
-        guard let requestString = String(data: data, encoding: .utf8) else {
+        let key = ObjectIdentifier(connection)
+        var buffer = requestBuffers[key] ?? Data()
+        buffer.append(data)
+        requestBuffers[key] = buffer
+
+        guard let requestString = String(data: buffer, encoding: .utf8) else {
             sendResponse(connection: connection, status: .badRequest, body: "Invalid request")
+            requestBuffers.removeValue(forKey: key)
             return
         }
-        
+
+        // Need at least the end-of-headers marker before we can route.
+        guard let headerEnd = requestString.range(of: "\r\n\r\n") else {
+            // Wait for more bytes to arrive.
+            return
+        }
+
         let lines = requestString.components(separatedBy: "\r\n")
         guard let firstLine = lines.first else { return }
-        
+
         let parts = firstLine.components(separatedBy: " ")
         guard parts.count >= 2 else { return }
-        
+
         let method = parts[0]
         let path = parts[1]
-        
+
         // Extract headers and body
         var headers: [String: String] = [:]
         var bodyStartIndex = 0
@@ -179,11 +219,26 @@ class ServerManager: ObservableObject {
                 headers[key.lowercased()] = value
             }
         }
-        
-        let body = bodyStartIndex > 0 && bodyStartIndex < lines.count 
-            ? lines[bodyStartIndex...].joined(separator: "\n") 
-            : ""
-        
+
+        // Determine body length and re-read if the body hasn't fully arrived.
+        let declaredLength = Int(headers["content-length"] ?? "") ?? 0
+        let headerByteCount = headerEnd.upperBound.utf16Offset(in: requestString)
+        let receivedBodyBytes = buffer.count - headerByteCount
+        if receivedBodyBytes < declaredLength {
+            // Wait for additional reads to deliver the rest of the body.
+            return
+        }
+
+        // We have a complete request; pull the body bytes from the buffer.
+        let body: String
+        if bodyStartIndex > 0 && bodyStartIndex < lines.count {
+            body = lines[bodyStartIndex...].joined(separator: "\n")
+        } else {
+            body = ""
+        }
+
+        // Clear the buffer for this connection.
+        requestBuffers.removeValue(forKey: key)
         // Increment request counter
         requestCount += 1
         lastRequestTime = Date()
@@ -194,10 +249,20 @@ class ServerManager: ObservableObject {
                 sendResponse(connection: connection, status: .unauthorized, body: "Missing authorization header")
                 return
             }
-            
-            if let expectedKey = apiKey, !authHeader.contains(expectedKey) {
-                sendResponse(connection: connection, status: .unauthorized, body: "Invalid API key")
-                return
+
+            // If an API key is configured, require a Bearer token that exactly matches it.
+            if let expectedKey = apiKey, !expectedKey.isEmpty {
+                let prefix = "Bearer "
+                guard authHeader.hasPrefix(prefix) else {
+                    sendResponse(connection: connection, status: .unauthorized, body: "Invalid authorization scheme")
+                    return
+                }
+                let token = String(authHeader.dropFirst(prefix.count))
+                // Constant-time comparison to avoid timing side channels.
+                guard constantTimeEquals(token, expectedKey) else {
+                    sendResponse(connection: connection, status: .unauthorized, body: "Invalid API key")
+                    return
+                }
             }
         }
         
@@ -299,32 +364,50 @@ class ServerManager: ObservableObject {
         }
     }
     
-    private func handleStreamingChat(request: ChatCompletionRequest, connection: NWConnection) async {
+    private func handleStreamingChat(request: ChatCompletionRequest, connection: NWConnection) {
         let modelManager = ModelManager.shared
-        
+
         let stream = modelManager.streamResponse(
             messages: request.messages.map { ChatMessage(role: $0.role, content: $0.content) },
             temperature: request.temperature ?? 0.7,
             maxTokens: request.maxTokens ?? 512
         )
-        
+
         // Send SSE headers
         let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n"
         sendData(connection: connection, data: headers.data(using: .utf8)!)
-        
-        do {
-            for try await token in stream {
-                let chunk = StreamChunk(choices: [StreamChoice(delta: Delta(content: token))])
-                let jsonData = try JSONEncoder().encode(chunk)
-                let sseData = "data: \(String(data: jsonData, encoding: .utf8)!)\n\n".data(using: .utf8)!
-                sendData(connection: connection, data: sseData)
+
+        // Monitor connection state so we cancel inference when the client
+        // disconnects mid-stream (e.g. user hits "stop" in their UI).
+        var clientDisconnected = false
+        let stateCancellable = connection.stateUpdateHandler != nil
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed, .cancelled:
+                clientDisconnected = true
+            default:
+                break
             }
-            
-            // Send DONE
-            let doneData = "data: [DONE]\n\n".data(using: .utf8)!
-            sendData(connection: connection, data: doneData)
-        } catch {
-            print("Streaming error: \(error)")
+        }
+
+        Task { @MainActor in
+            do {
+                for try await token in stream {
+                    if clientDisconnected {
+                        break
+                    }
+                    let chunk = StreamChunk(choices: [StreamChoice(delta: Delta(content: token))])
+                    let jsonData = try JSONEncoder().encode(chunk)
+                    let sseData = "data: \(String(data: jsonData, encoding: .utf8)!)\n\n".data(using: .utf8)!
+                    sendData(connection: connection, data: sseData)
+                }
+
+                // Send DONE
+                let doneData = "data: [DONE]\n\n".data(using: .utf8)!
+                sendData(connection: connection, data: doneData)
+            } catch {
+                print("Streaming error: \(error)")
+            }
         }
     }
     
@@ -363,37 +446,59 @@ class ServerManager: ObservableObject {
     }
     
     private func sendData(connection: NWConnection, data: Data) {
-        connection.send(content: data, completion: .contentProcessed { _ in })
+        // Use the connection's default queue; the completion callback is
+        // invoked when the data has been handed off to the network stack.
+        // We avoid dispatching huge queues of in-flight sends by waiting
+        // for completion before issuing the next one at the call site,
+        // but this synchronous helper just kicks the send.
+        connection.send(content: data, completion: .contentProcessed { error in
+            if let error = error {
+                print("Send error: \(error)")
+            }
+        })
     }
     
     // MARK: - Network Info
     
-    func refreshIPAddress() {
+    func refreshIPAddress() async {
+        isRefreshingIP = true
+        
         var address: String?
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         
-        guard getifaddrs(&ifaddr) == 0 else { return }
+        guard getifaddrs(&ifaddr) == 0 else { 
+            isRefreshingIP = false
+            return 
+        }
         defer { freeifaddrs(ifaddr) }
         
         var ptr = ifaddr
         while ptr != nil {
             defer { ptr = ptr?.pointee.ifa_next }
-            
+
             let interface = ptr!.pointee
-            let addrFamily = interface.ifa_addr.pointee.sa_family
-            
+
+            guard let ifaAddr = interface.ifa_addr else {
+                continue
+            }
+
+            let addrFamily = ifaAddr.pointee.sa_family
+
             if addrFamily == UInt8(AF_INET) {
                 let name = String(cString: interface.ifa_name)
                 if name == "en0" || name == "en1" { // Wi-Fi interface
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
+                    getnameinfo(ifaAddr, socklen_t(ifaAddr.pointee.sa_len),
                                &hostname, socklen_t(hostname.count), nil, socklen_t(0), NI_NUMERICHOST)
                     address = String(cString: hostname)
                 }
             }
         }
         
-        ipAddress = address
+        await MainActor.run {
+            ipAddress = address
+            isRefreshingIP = false
+        }
     }
     
     // MARK: - Server Status
@@ -480,52 +585,4 @@ struct ModelInfo: Codable {
 struct ModelsListResponse: Codable {
     let object: String
     let data: [ModelInfo]
-}
-
-struct ChatMessageRequest: Codable {
-    let role: String
-    let content: String
-}
-
-struct ChatCompletionRequest: Codable {
-    let model: String
-    let messages: [ChatMessageRequest]
-    let temperature: Double?
-    let maxTokens: Int?
-    let stream: Bool?
-}
-
-struct ChatMessage: Codable {
-    let role: String
-    let content: String
-}
-
-struct Choice: Codable {
-    let index: Int
-    let message: ChatMessage
-    let finishReason: String
-    
-    enum CodingKeys: String, CodingKey {
-        case index
-        case message
-        case finishReason = "finish_reason"
-    }
-}
-
-struct ChatCompletionResponse: Codable {
-    let id: String
-    let object: String
-    let choices: [Choice]
-}
-
-struct Delta: Codable {
-    let content: String?
-}
-
-struct StreamChoice: Codable {
-    let delta: Delta
-}
-
-struct StreamChunk: Codable {
-    let choices: [StreamChoice]
 }

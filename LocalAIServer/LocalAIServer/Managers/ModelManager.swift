@@ -347,6 +347,13 @@ class ModelManager: ObservableObject {
         }
         
         do {
+            // Unload any previously-loaded engine so its model memory is
+            // released before we allocate a new one.
+            if let existing = inferenceEngine {
+                await existing.unload()
+                await MainActor.run { self.inferenceEngine = nil }
+            }
+
             let engine = LlamaCppInferenceEngine()
             try await engine.loadModel(at: getModelPath(for: model))
             

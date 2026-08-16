@@ -52,6 +52,10 @@ enum AppConstants {
         static let showAdvancedSettings = "showAdvancedSettings"
         static let enableLogging = "enableLogging"
         static let apiKey = "apiKey"
+        /// Persisted dictionary of `[modelId: encoded AIModel]` for models
+        /// the user added from HuggingFace search. Built-in models live in
+        /// `AIModel.availableModels` and are NOT re-serialized here.
+        static let customModels = "customModels"
     }
     
     /// Notification names

@@ -42,7 +42,10 @@ struct AIModel: Identifiable, Codable, Equatable {
     let hfRepo: String
     let ggufFilename: String
     let quantization: String
-    let contextLength: Int
+    /// Trained context length from the GGUF metadata. Initialized to the
+    /// catalog value (e.g. 4096) but replaced at load time with the real
+    /// value read via `llama_model_n_ctx_train`.
+    var contextLength: Int
     let sha256: String?
     
     enum ModelFormat: String, Codable {

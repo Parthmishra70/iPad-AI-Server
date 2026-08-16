@@ -10,7 +10,8 @@ import LlamaSwift
 
 /// Protocol for inference engines - allows multiple backend implementations
 protocol InferenceEngineProtocol: AnyObject {
-    func loadModel(at path: URL) async throws
+    /// Loads the model and returns its trained context length (n_ctx_train).
+    func loadModel(at path: URL) async throws -> Int
     func generate(prompt: String, temperature: Double, maxTokens: Int) async throws -> String
     func streamGenerate(prompt: String, temperature: Double, maxTokens: Int) -> AsyncThrowingStream<String, Error>
     func unload() async
@@ -23,53 +24,66 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
     private var context: OpaquePointer?
     private var vocab: OpaquePointer?
     private var modelPath: URL?
-    private let nCtx: UInt32 = 4096
+    /// Fallback if reading n_ctx_train from the GGUF fails or returns 0.
+    private let fallbackNCtx: UInt32 = 4096
     private var isLoaded: Bool = false
-    
+
     private let queue = DispatchQueue(label: "com.localaiserver.llama", qos: .userInitiated)
-    
+
     // MARK: - InferenceEngineProtocol
-    
-    func loadModel(at path: URL) async throws {
+
+    func loadModel(at path: URL) async throws -> Int {
         guard FileManager.default.fileExists(atPath: path.path) else {
             throw InferenceError.modelNotFound
         }
-        
+
         self.modelPath = path
-        
-        try await Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self = self else { return }
-            
-            llama_backend_init()
-            
-            var modelParams = llama_model_default_params()
-            modelParams.n_gpu_layers = -1
-            
-            let cPath = path.path.cString(using: .utf8)!
-            let loadedModel = llama_model_load_from_file(cPath, modelParams)
-            
-            guard let loadedModel = loadedModel else {
+
+        return try await Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self = self else {
                 throw InferenceError.inferenceFailed
             }
-            
+
+            llama_backend_init()
+
+            var modelParams = llama_model_default_params()
+            modelParams.n_gpu_layers = -1
+
+            let cPath = path.path.cString(using: .utf8)!
+            let loadedModel = llama_model_load_from_file(cPath, modelParams)
+
+            guard let loadedModel = loadedModel else {
+                throw InferenceError.modelLoadFailed
+            }
+
             guard let loadedVocab = llama_model_get_vocab(loadedModel) else {
                 llama_model_free(loadedModel)
                 throw InferenceError.inferenceFailed
             }
-            
+
+            // Read the trained context length from the model metadata.
+            // Some GGUFs report 0 — fall back to a safe default in that case.
+            let trainedNCtx = llama_model_n_ctx_train(loadedModel)
+            let effectiveNCtx: UInt32 = trainedNCtx > 0
+                ? UInt32(trainedNCtx)
+                : self.fallbackNCtx
+
             var ctxParams = llama_context_default_params()
-            ctxParams.n_ctx = self.nCtx
+            ctxParams.n_ctx = effectiveNCtx
             ctxParams.n_threads = Int32(max(1, min(8, ProcessInfo.processInfo.activeProcessorCount - 2)))
             ctxParams.n_threads_batch = ctxParams.n_threads
             ctxParams.n_batch = 512
-            
+
             guard let loadedContext = llama_init_from_model(loadedModel, ctxParams) else {
+                // Most likely cause on iPad: KV cache allocation for the
+                // model's full trained context blew past free RAM.
                 llama_model_free(loadedModel)
-                throw InferenceError.inferenceFailed
+                throw InferenceError.contextAllocationFailed
             }
-            
+
             self.setLoaded(model: loadedModel, context: loadedContext, vocab: loadedVocab)
-            print("Model loaded from: \(path.path)")
+            print("Model loaded from: \(path.path) (n_ctx=\(effectiveNCtx), trained=\(trainedNCtx))")
+            return Int(effectiveNCtx)
         }.value
     }
     
@@ -300,7 +314,9 @@ enum InferenceError: LocalizedError {
     case inferenceFailed
     case tokenizationFailed
     case decodingFailed
-    
+    case contextAllocationFailed
+    case modelLoadFailed
+
     var errorDescription: String? {
         switch self {
         case .modelNotFound: return "Model file not found at specified path"
@@ -308,6 +324,10 @@ enum InferenceError: LocalizedError {
         case .inferenceFailed: return "Inference execution failed"
         case .tokenizationFailed: return "Failed to tokenize input"
         case .decodingFailed: return "Failed to decode output tokens"
+        case .contextAllocationFailed:
+            return "Could not allocate the context window. The model's trained context length is too large for this iPad's available memory."
+        case .modelLoadFailed:
+            return "Could not load the GGUF model. The file may be corrupt or the format unsupported."
         }
     }
 }

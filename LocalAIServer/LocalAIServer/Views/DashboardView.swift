@@ -31,13 +31,17 @@ struct DashboardView: View {
                         // Server Status Card
                         ServerStatusCard()
                             .gridCellColumns(columns.count == 1 ? 1 : 2)
-                        
+
                         // Active Model Card
                         ActiveModelCard()
-                        
+
                         // Network Info Card
                         NetworkInfoCard()
-                        
+
+                        // Storage usage card (only if we have downloaded models)
+                        StorageInfoCard()
+                            .gridCellColumns(columns.count == 1 ? 1 : 2)
+
                         // Quick Stats
                         QuickStatsCard()
                             .gridCellColumns(columns.count == 1 ? 1 : 2)
@@ -407,6 +411,90 @@ struct QuickStatsCard: View {
 }
 
 // MARK: - Helper Views
+
+struct StorageInfoCard: View {
+    @EnvironmentObject var modelManager: ModelManager
+
+    var body: some View {
+        let usage = modelManager.storageUsage()
+        let hasDownloaded = usage.usedBytes > 0
+
+        VStack(alignment: .leading, spacing: 16) {
+            Label {
+                Text("Storage")
+                    .font(.headline)
+            } icon: {
+                Image(systemName: "externaldrive.fill")
+                    .foregroundColor(.blue)
+                    .symbolRenderingMode(.hierarchical)
+            }
+
+            Divider()
+
+            if hasDownloaded {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(format(usage.usedGB)) GB")
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(.primary)
+                        Text("used by models")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    ProgressView(value: min(1.0, usage.pressure))
+                        .tint(pressureColor(usage.pressure))
+
+                    HStack {
+                        Text("\(format(usage.freeGB)) GB free")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        if usage.totalGB > 0 {
+                            Text("\(format(usage.totalGB)) GB total")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "tray")
+                        .foregroundColor(.secondary)
+                    Text("No models downloaded yet.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 4)
+        )
+        .accessibilityLabel("Model storage usage")
+        .accessibilityValue(hasDownloaded
+            ? "\(format(usage.usedGB)) GB used, \(format(usage.freeGB)) GB free"
+            : "No models downloaded")
+    }
+
+    private func format(_ gb: Double) -> String {
+        if gb >= 10 {
+            return String(format: "%.0f", gb)
+        } else {
+            return String(format: "%.1f", gb)
+        }
+    }
+
+    private func pressureColor(_ p: Double) -> Color {
+        switch p {
+        case ..<0.5: return .green
+        case ..<0.8: return .orange
+        default: return .red
+        }
+    }
+}
 
 struct StatusIndicator: View {
     let isRunning: Bool

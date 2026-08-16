@@ -673,7 +673,7 @@ struct HuggingFaceSearchSection: View {
             let r = try await HuggingFaceService.shared.searchModels(query: trimmed)
             results = r
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = HuggingFaceError.wrap(error).errorDescription
             results = []
         }
     }
@@ -741,30 +741,62 @@ struct HuggingFaceModelRow: View {
 struct HuggingFaceFilesView: View {
     @EnvironmentObject var modelManager: ModelManager
     let repoId: String
-    
+
     @State private var files: [HuggingFaceFile] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var errorIsGated = false
     @State private var pickingFile: HuggingFaceFile?
-    
+    @State private var excludeBaseModels = true
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if isLoading {
-                    HStack {
+                    VStack(spacing: 12) {
                         ProgressView()
+                            .scaleEffect(1.1)
                         Text("Loading files from \(repoId)…")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 40)
                     .frame(maxWidth: .infinity)
                 } else if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundColor(.red)
-                        .padding()
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: errorIsGated ? "lock.fill" : "exclamationmark.triangle.fill")
+                                .foregroundColor(errorIsGated ? .orange : .red)
+                            Text(errorIsGated ? "Gated repository" : "Couldn't load files")
+                                .font(.headline)
+                        }
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        if errorIsGated {
+                            Text("Tip: try a public repo like Qwen/Qwen2.5-1.5B-Instruct-GGUF or bartowski/Llama-3.2-3B-Instruct-GGUF.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .padding(20)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else if files.isEmpty {
-                    Text("No .gguf files found in this repository.")
-                        .foregroundColor(.secondary)
-                        .padding()
+                    VStack(spacing: 10) {
+                        Text("No \(excludeBaseModels ? "instruct-tuned " : "")GGUF files found.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        if excludeBaseModels {
+                            Text("This repo may only contain base models. Toggle 'Show base models' below to list every GGUF verbatim.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                        }
+                    }
+                    .padding(.vertical, 30)
+                    .frame(maxWidth: .infinity)
                 } else {
                     ForEach(files) { file in
                         Button {
@@ -774,6 +806,14 @@ struct HuggingFaceFilesView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+
+                if !isLoading && errorMessage == nil {
+                    Toggle("Show base models", isOn: $excludeBaseModels)
+                        .padding(.top, 10)
+                        .onChange(of: excludeBaseModels) { _, _ in
+                            Task { await load() }
+                        }
                 }
             }
             .padding(20)
@@ -791,29 +831,36 @@ struct HuggingFaceFilesView: View {
             .presentationDetents([.medium, .large])
         }
     }
-    
+
     private func load() async {
         isLoading = true
         errorMessage = nil
+        errorIsGated = false
         defer { isLoading = false }
         do {
-            files = try await HuggingFaceService.shared.listFiles(repoId: repoId)
+            files = try await HuggingFaceService.shared.listFiles(
+                repoId: repoId,
+                excludeBaseModels: excludeBaseModels
+            )
+        } catch let hf as HuggingFaceError {
+            errorIsGated = (hf == .gatedRepo)
+            errorMessage = hf.errorDescription
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = HuggingFaceError.wrap(error).errorDescription
         }
     }
 }
 
 struct HuggingFaceFileRow: View {
     let file: HuggingFaceFile
-    
+
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: "doc.fill")
                 .font(.title3)
                 .foregroundColor(.blue)
                 .frame(width: 32)
-            
+
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.filename)
                     .font(.subheadline.weight(.medium))
@@ -827,11 +874,16 @@ struct HuggingFaceFileRow: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
+                    if !file.looksLikeInstruct {
+                        Label("base", systemImage: "exclamationmark.triangle")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.orange)
+                    }
                 }
             }
-            
+
             Spacer()
-            
+
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)

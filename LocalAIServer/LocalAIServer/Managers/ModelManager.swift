@@ -26,6 +26,9 @@ class ModelManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let modelStateKey = "savedModelStates"
+    /// IDs of built-in models from `AIModel.availableModels`. Persisted
+    /// custom HF models use these to distinguish from built-ins.
+    private let builtInIds = Set(AIModel.availableModels.map { $0.id })
     
     /// Directory where models are stored
     private var modelsDirectory: URL {
@@ -39,45 +42,70 @@ class ModelManager: ObservableObject {
     
     // MARK: - Initialization
     
-    func loadSavedModels() {
+    func loadSavedModels() async {
         isLoadingModels = true
-        
-        Task {
-            let availableModels = AIModel.availableModels
-            var loadedModels: [AIModel] = []
-            let savedStates = loadModelStates()
-            
-            for model in availableModels {
-                var modelCopy = model
-                let modelPath = getModelPath(for: modelCopy)
-                
-                // Restore saved state if available
-                if let savedState = savedStates[model.id] {
-                    modelCopy.state = savedState
-                    modelCopy.downloadProgress = savedState == .downloaded || savedState == .installed ? 1.0 : 0.0
-                }
-                
-                // Check if file actually exists
-                if fileManager.fileExists(atPath: modelPath.path) {
-                    if modelCopy.state == .notDownloaded {
-                        modelCopy.state = .downloaded
-                    }
-                    modelCopy.localPath = modelPath.path
-                }
-                
-                loadedModels.append(modelCopy)
+
+        // Body is async — no inner Task wrapper. Callers can `await` and
+        // actually wait for the catalog to be rehydrated (used by
+        // Dashboard refreshable + app startup TaskGroup).
+        let availableModels = AIModel.availableModels
+        var loadedModels: [AIModel] = []
+        let savedStates = loadModelStates()
+
+        for model in availableModels {
+            var modelCopy = model
+            let modelPath = getModelPath(for: modelCopy)
+
+            // Restore saved state if available
+            if let savedState = savedStates[model.id] {
+                modelCopy.state = savedState
+                modelCopy.downloadProgress = savedState == .downloaded || savedState == .installed ? 1.0 : 0.0
             }
-            
-            await MainActor.run {
-                self.models = loadedModels
-                self.isLoadingModels = false
-            }
-            
-            if let savedModelId = UserDefaults.standard.string(forKey: "activeModelId") {
-                let model = loadedModels.first { $0.id == savedModelId && $0.isDownloaded }
-                if let model {
-                    await loadModel(model)
+
+            // Check if file actually exists
+            if fileManager.fileExists(atPath: modelPath.path) {
+                if modelCopy.state == .notDownloaded {
+                    modelCopy.state = .downloaded
                 }
+                modelCopy.localPath = modelPath.path
+            }
+
+            loadedModels.append(modelCopy)
+        }
+
+        // Rehydrate custom (HF-sourced) models. Their metadata lives in
+        // UserDefaults; their on-disk file presence + savedStates drive
+        // the visible state, same as built-ins.
+        for var customModel in loadCustomModels() {
+            let modelPath = getModelPath(for: customModel)
+
+            if let savedState = savedStates[customModel.id] {
+                customModel.state = savedState
+                customModel.downloadProgress = savedState == .downloaded || savedState == .installed ? 1.0 : 0.0
+            }
+
+            if fileManager.fileExists(atPath: modelPath.path) {
+                if customModel.state == .notDownloaded {
+                    customModel.state = .downloaded
+                }
+                customModel.localPath = modelPath.path
+            } else if customModel.state != .downloading {
+                // File is gone but the entry is persisted — reset.
+                customModel.state = .notDownloaded
+                customModel.downloadProgress = 0.0
+                customModel.localPath = nil
+            }
+
+            loadedModels.append(customModel)
+        }
+
+        self.models = loadedModels
+        self.isLoadingModels = false
+
+        if let savedModelId = UserDefaults.standard.string(forKey: "activeModelId") {
+            let model = loadedModels.first { $0.id == savedModelId && $0.isDownloaded }
+            if let model {
+                await loadModel(model)
             }
         }
     }
@@ -107,6 +135,43 @@ class ModelManager: ObservableObject {
             userDefaults.set(data, forKey: modelStateKey)
         }
     }
+
+    // MARK: - Custom HF Model Persistence
+
+    /// Load all custom (non-built-in) models the user previously added via
+    /// HuggingFace search. Returns them in their persisted state; the caller
+    /// merges in downloaded-file checks before displaying.
+    private func loadCustomModels() -> [AIModel] {
+        guard let data = userDefaults.data(forKey: AppConstants.UserDefaultsKeys.customModels) else {
+            return []
+        }
+        guard let dict = try? JSONDecoder().decode([String: Data].self, from: data) else {
+            return []
+        }
+        var result: [AIModel] = []
+        for (_, modelData) in dict {
+            if let model = try? JSONDecoder().decode(AIModel.self, from: modelData) {
+                result.append(model)
+            }
+        }
+        return result
+    }
+
+    /// Re-encode the full set of custom models back to UserDefaults. Called
+    /// after `addCustomModel`, `deleteModel`, or `updateModelState` when a
+    /// custom model's metadata (e.g. contextLength discovered at load time)
+    /// has changed.
+    private func saveCustomModels() {
+        var dict: [String: Data] = [:]
+        for model in models where !builtInIds.contains(model.id) {
+            if let data = try? JSONEncoder().encode(model) {
+                dict[model.id] = data
+            }
+        }
+        if let data = try? JSONEncoder().encode(dict) {
+            userDefaults.set(data, forKey: AppConstants.UserDefaultsKeys.customModels)
+        }
+    }
     
     private func createModelsDirectoryIfNeeded() {
         if !fileManager.fileExists(atPath: modelsDirectory.path) {
@@ -118,6 +183,39 @@ class ModelManager: ObservableObject {
     
     func getModelPath(for model: AIModel) -> URL {
         return modelsDirectory.appendingPathComponent("\(model.id).gguf")
+    }
+
+    /// On-disk location for resume data produced by a cancelled download.
+    /// Stored as a hidden file `<Models>/.<id>.resume` so partial download
+    /// state survives app crashes/relaunches. Deleted on successful
+    /// completion or explicit cancel.
+    private func resumeDataPath(for modelId: String) -> URL {
+        modelsDirectory.appendingPathComponent(".\(modelId).resume")
+    }
+
+    /// Persist resume data to disk so it survives app restarts.
+    private func saveResumeData(_ data: Data, for modelId: String) {
+        do {
+            try data.write(to: resumeDataPath(for: modelId), options: .atomic)
+        } catch {
+            print("Failed to persist resume data for \(modelId): \(error)")
+        }
+    }
+
+    /// Read any on-disk resume data for `modelId`. Returns nil if none
+    /// exists or the file can't be read.
+    private func loadResumeData(for modelId: String) -> Data? {
+        let url = resumeDataPath(for: modelId)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        return try? Data(contentsOf: url)
+    }
+
+    /// Persist the in-memory resumeData dict to disk for ALL models that
+    /// currently have resume data. Called from receiveCancel.
+    private func flushAllResumeData() {
+        for (modelId, data) in resumeData {
+            saveResumeData(data, for: modelId)
+        }
     }
     
     // MARK: - Download Operations
@@ -138,16 +236,26 @@ class ModelManager: ObservableObject {
         guard let url = model.sourceURL else {
             throw ModelError.invalidSourceURL
         }
-        
+
         // Reset error state if re-attempting
         await updateModelState(model.id, state: .downloading, progress: 0.0)
-        
+
         let destinationURL = getModelPath(for: model)
-        
+
         // Track the task so pause/cancel can address it
         let task: URLSessionDownloadTask
-        if let data = resumeData.removeValue(forKey: model.id) {
+        // Prefer in-memory resume data; fall back to disk-persisted data
+        // left over from a prior session (app crashed, force-quit, etc.).
+        let data = resumeData.removeValue(forKey: model.id) ?? loadResumeData(for: model.id)
+        if let data {
             task = downloadSession.downloadTask(withResumeData: data)
+            // Once we've handed the bytes to URLSession, the on-disk copy
+            // is redundant — remove it. If this download fails/cancels
+            // again we'll write a fresh file.
+            let resumeFile = resumeDataPath(for: model.id)
+            if fileManager.fileExists(atPath: resumeFile.path) {
+                try? fileManager.removeItem(at: resumeFile)
+            }
         } else {
             task = downloadSession.downloadTask(with: url)
         }
@@ -193,7 +301,13 @@ class ModelManager: ObservableObject {
     /// Called by delegate when a download finishes successfully.
     func receiveCompletion(modelId: String, model: AIModel, tempURL: URL, destinationURL: URL, expectedBytes: Int64, continuation: CheckedContinuation<Void, Error>) {
         activeDownloads.removeValue(forKey: modelId)
-        
+        // Download is done — discard any stale resume data, on-disk or in-memory.
+        resumeData.removeValue(forKey: modelId)
+        let resumeFile = resumeDataPath(for: modelId)
+        if fileManager.fileExists(atPath: resumeFile.path) {
+            try? fileManager.removeItem(at: resumeFile)
+        }
+
         // Move file to destination and validate
         Task { [weak self] in
             guard let self else { return }
@@ -224,11 +338,19 @@ class ModelManager: ObservableObject {
     func receiveCancel(modelId: String, resumeBytes: Data?, continuation: CheckedContinuation<Void, Error>) {
         activeDownloads.removeValue(forKey: modelId)
         if let resumeBytes {
+            // Persist to memory AND disk so resume survives app relaunch.
             resumeData[modelId] = resumeBytes
+            saveResumeData(resumeBytes, for: modelId)
             Task { [weak self] in
                 await self?.updateModelState(modelId, state: .downloading, progress: nil)
             }
         } else {
+            // No resume data — clean up any stale on-disk file too.
+            resumeData.removeValue(forKey: modelId)
+            let resumeFile = resumeDataPath(for: modelId)
+            if fileManager.fileExists(atPath: resumeFile.path) {
+                try? fileManager.removeItem(at: resumeFile)
+            }
             Task { [weak self] in
                 await self?.updateModelState(modelId, state: .notDownloaded)
             }
@@ -250,6 +372,12 @@ class ModelManager: ObservableObject {
     
     func cancelDownload(for model: AIModel) {
         resumeData.removeValue(forKey: model.id)
+        // Also remove the on-disk resume file so a relaunch doesn't try to
+        // resume a model the user explicitly cancelled.
+        let resumeFile = resumeDataPath(for: model.id)
+        if fileManager.fileExists(atPath: resumeFile.path) {
+            try? fileManager.removeItem(at: resumeFile)
+        }
         activeDownloads[model.id]?.cancel()
         activeDownloads.removeValue(forKey: model.id)
         Task { [weak self] in
@@ -257,16 +385,56 @@ class ModelManager: ObservableObject {
         }
     }
     
-    /// Insert a model (e.g., from a HuggingFace search) into the catalog.
+    /// Insert a model (e.g., from a HuggingFace search) into the catalog
+    /// and persist it across launches via UserDefaults.
     func addCustomModel(_ model: AIModel) {
         if !models.contains(where: { $0.id == model.id }) {
             models.append(model)
-            saveModelStates()
+        } else if let idx = models.firstIndex(where: { $0.id == model.id }) {
+            // Already present — refresh metadata in case the user re-added it.
+            models[idx] = model
         }
+        saveCustomModels()
+        saveModelStates()
     }
     
     // MARK: - Download Validation
-    
+
+    /// Compute total bytes in the Models directory and the device's free
+    /// disk space. Used by the storage usage card on the Dashboard.
+    struct StorageUsage {
+        let usedBytes: Int64
+        let freeBytes: Int64
+        var usedGB: Double { Double(usedBytes) / 1_073_741_824 }
+        var freeGB: Double { Double(freeBytes) / 1_073_741_824 }
+        var totalGB: Double { usedGB + freeGB }
+        /// 0.0..1.0 — fraction of total disk used by downloaded models.
+        var pressure: Double {
+            guard totalGB > 0 else { return 0 }
+            return min(1.0, usedGB / totalGB)
+        }
+    }
+
+    func storageUsage() -> StorageUsage {
+        var used: Int64 = 0
+        if let contents = try? fileManager.contentsOfDirectory(at: modelsDirectory, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
+            for url in contents where url.pathExtension == "gguf" {
+                if let attrs = try? url.resourceValues(forKeys: [.fileSizeKey]),
+                   let size = attrs.fileSize {
+                    used += Int64(size)
+                }
+            }
+        }
+        let free: Int64
+        if let attrs = try? modelsDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+           let freeFromVolume = attrs.volumeAvailableCapacityForImportantUsage {
+            free = Int64(freeFromVolume)
+        } else {
+            free = 0
+        }
+        return StorageUsage(usedBytes: used, freeBytes: free)
+    }
+
     private func validateDownload(_ model: AIModel, at url: URL, expectedBytes: Int64) async throws {
         await updateModelState(model.id, state: .validating)
         
@@ -355,24 +523,40 @@ class ModelManager: ObservableObject {
             }
 
             let engine = LlamaCppInferenceEngine()
-            try await engine.loadModel(at: getModelPath(for: model))
-            
+            // Load the model and read the real trained context length back
+            // from the GGUF metadata. We use it to update AIModel.contextLength
+            // (which may have been a guess of 4096 at add time) and persist
+            // the corrected value for custom HF models.
+            let trainedNCtx = try await engine.loadModel(at: getModelPath(for: model))
+
             await MainActor.run {
+                // Patch the catalog entry with the real context length.
+                if let idx = self.models.firstIndex(where: { $0.id == model.id }),
+                   self.models[idx].contextLength != trainedNCtx,
+                   trainedNCtx > 0 {
+                    self.models[idx].contextLength = trainedNCtx
+                    // If it's a custom (HF-added) model, the corrected value
+                    // is persisted to UserDefaults so the next launch sees it.
+                    if !self.builtInIds.contains(model.id) {
+                        self.saveCustomModels()
+                    }
+                }
+
                 self.inferenceEngine = engine
                 self.activeModelId = model.id
                 self.isLoadingModel = false
                 self.currentLoadingModelId = nil
             }
-            
+
             await updateModelState(model.id, state: .loaded)
-            
+
             UserDefaults.standard.set(model.id, forKey: "activeModelId")
         } catch {
             await MainActor.run {
                 self.isLoadingModel = false
                 self.currentLoadingModelId = nil
             }
-            
+
             await updateModelState(model.id, state: .error, errorMessage: error.localizedDescription)
         }
     }
@@ -393,13 +577,27 @@ class ModelManager: ObservableObject {
     
     func deleteModel(_ model: AIModel) async throws {
         let modelPath = getModelPath(for: model)
-        
+
         if fileManager.fileExists(atPath: modelPath.path) {
             try fileManager.removeItem(at: modelPath)
         }
-        
-        await updateModelState(model.id, state: .notDownloaded, progress: 0.0, localPath: nil)
-        
+
+        // Clean up any leftover resume data for this model too.
+        resumeData.removeValue(forKey: model.id)
+        let resumeFile = resumeDataPath(for: model.id)
+        if fileManager.fileExists(atPath: resumeFile.path) {
+            try? fileManager.removeItem(at: resumeFile)
+        }
+
+        // For custom (non-built-in) models, remove the persisted entry too
+        // so it doesn't reappear on next launch as an orphan row.
+        if !builtInIds.contains(model.id) {
+            models.removeAll { $0.id == model.id }
+            saveCustomModels()
+        } else {
+            await updateModelState(model.id, state: .notDownloaded, progress: 0.0, localPath: nil)
+        }
+
         if self.activeModelId == model.id {
             await unloadModel()
         }

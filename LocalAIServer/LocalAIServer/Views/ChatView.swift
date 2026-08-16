@@ -107,7 +107,25 @@ struct ChatView: View {
             }
             
             Divider()
-            
+
+            // Idle-state "Load & Chat" card — appears only when no model
+            // is currently loaded AND at least one downloaded model
+            // exists. Gives the user a one-tap path to use a model
+            // they're already installed but haven't loaded yet.
+            if modelManager.activeModel == nil,
+               let recent = modelManager.recentlyDownloadedModel {
+                LoadAndChatCard(model: recent, isLoading: modelManager.isLoadingModel) {
+                    Task {
+                        await modelManager.loadModel(recent)
+                    }
+                } onBrowse: {
+                    AppRouter.shared.requestSwitch(to: .models)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+
             // Input area
             ChatInputView(
                 inputText: $inputText,
@@ -309,28 +327,45 @@ struct ChatView: View {
 // MARK: - Active Model Header
 
 struct ActiveModelHeader: View {
+    @EnvironmentObject var modelManager: ModelManager
     let model: AIModel
     let isStreaming: Bool
     var tokensUsed: Int? = nil
     var tokensPerSecond: Double? = nil
-    
+
+    @State private var showingSwitcher = false
+    @State private var loadingModelId: String?
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
                     .fill(modelColor)
                     .frame(width: 36, height: 36)
-                
+
                 Image(systemName: modelIcon)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
             }
-            
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                
+                HStack(spacing: 6) {
+                    Text(model.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+
+                if model.isHFSourced && !model.hfRepo.isEmpty {
+                    Text("from huggingface.co/\(model.hfRepo)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary.opacity(0.85))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
                 HStack(spacing: 8) {
                     Text(model.quantization)
                         .font(.caption2.weight(.medium))
@@ -338,11 +373,11 @@ struct ActiveModelHeader: View {
                         .padding(.vertical, 2)
                         .background(Color(.systemGray5))
                         .cornerRadius(4)
-                    
+
                     Text("\(model.contextLength) ctx")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    
+
                     if let tokensUsed = tokensUsed, let maxTokens = maxTokensForModel {
                         Text("\(tokensUsed)/\(maxTokens)")
                             .font(.caption2.weight(.medium))
@@ -351,7 +386,7 @@ struct ActiveModelHeader: View {
                             .background(Color(.systemGray5))
                             .cornerRadius(4)
                     }
-                    
+
                     if let tokensPerSecond = tokensPerSecond {
                         Text("\(tokensPerSecond, specifier: "%.1f") tok/s")
                             .font(.caption2.weight(.medium))
@@ -363,9 +398,9 @@ struct ActiveModelHeader: View {
                     }
                 }
             }
-            
+
             Spacer()
-            
+
             if isStreaming {
                 HStack(spacing: 4) {
                     ProgressView()
@@ -379,6 +414,32 @@ struct ActiveModelHeader: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(Color(.systemBackground))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            showingSwitcher = true
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Tap to switch active model")
+        .popover(isPresented: $showingSwitcher, arrowEdge: .top) {
+            ModelSwitcherView(
+                models: modelManager.models.filter { $0.isDownloaded },
+                activeModelId: modelManager.activeModelId,
+                isLoading: modelManager.isLoadingModel,
+                loadingModelId: loadingModelId,
+                onSelect: { chosen in
+                    showingSwitcher = false
+                    guard chosen.id != modelManager.activeModelId else { return }
+                    loadingModelId = chosen.id
+                    Task {
+                        await modelManager.loadModel(chosen)
+                        await MainActor.run {
+                            loadingModelId = nil
+                        }
+                    }
+                }
+            )
+            .presentationCompactAdaptation(.popover)
+        }
     }
     
     private var maxTokensForModel: Int? {
@@ -429,7 +490,9 @@ struct NoModelHeader: View {
             
             Spacer()
             
-            NavigationLink(destination: ModelsView()) {
+            Button {
+                AppRouter.shared.requestSwitch(to: .models)
+            } label: {
                 Text("Browse Models")
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 12)
@@ -442,6 +505,75 @@ struct NoModelHeader: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(Color(.systemBackground))
+    }
+}
+
+/// Inline card shown in the Chat view when no model is loaded but at
+/// least one downloaded model exists. Offers one-tap load + chat.
+struct LoadAndChatCard: View {
+    let model: AIModel
+    let isLoading: Bool
+    let onLoad: () -> Void
+    let onBrowse: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: 44, height: 44)
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.accentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Load & Chat with")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text(model.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text("\(model.quantization) · \(model.contextLength) ctx")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if isLoading {
+                ProgressView()
+            } else {
+                Button {
+                    onLoad()
+                } label: {
+                    Label("Load", systemImage: "play.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                Button {
+                    onBrowse()
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityLabel("Browse all models")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.accentColor.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.accentColor.opacity(0.25), lineWidth: 1)
+        )
     }
 }
 
@@ -888,4 +1020,122 @@ struct RoundedCorner: Shape {
     ChatView(selectedTab: .constant(.chat))
         .environmentObject(ModelManager.shared)
         .environmentObject(ServerManager.shared)
+}
+
+/// Popover content for `ActiveModelHeader`. Lists every downloaded model
+/// and lets the user swap the active one without leaving Chat.
+struct ModelSwitcherView: View {
+    let models: [AIModel]
+    let activeModelId: String?
+    let isLoading: Bool
+    let loadingModelId: String?
+    let onSelect: (AIModel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundColor(.accentColor)
+                Text("Switch Model")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            if models.isEmpty {
+                VStack(spacing: 8) {
+                    Text("No downloaded models yet.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button {
+                        AppRouter.shared.requestSwitch(to: .models)
+                    } label: {
+                        Label("Browse Models", systemImage: "arrow.right.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+            } else {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(models) { m in
+                            ModelSwitcherRow(
+                                model: m,
+                                isActive: m.id == activeModelId,
+                                isLoadingThis: isLoading && loadingModelId == m.id,
+                                isDisabled: isLoading && loadingModelId != m.id,
+                                onSelect: { onSelect(m) }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                }
+                .frame(maxHeight: 360)
+            }
+        }
+        .frame(width: 320)
+    }
+}
+
+private struct ModelSwitcherRow: View {
+    let model: AIModel
+    let isActive: Bool
+    let isLoadingThis: Bool
+    let isDisabled: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(isActive ? .green : .secondary)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.displayName)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
+                    HStack(spacing: 6) {
+                        Text(model.quantization)
+                        Text("·")
+                        Text("\(model.contextLength) ctx")
+                        if model.isHFSourced {
+                            Text("·")
+                            Image(systemName: "globe")
+                                .font(.caption2)
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if isLoadingThis {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if isActive {
+                    Text("Active")
+                        .font(.caption2.weight(.medium))
+                        .foregroundColor(.green)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isActive ? Color.green.opacity(0.08) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1)
+    }
 }

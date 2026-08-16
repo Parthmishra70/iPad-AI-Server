@@ -56,6 +56,11 @@ enum AppConstants {
         /// the user added from HuggingFace search. Built-in models live in
         /// `AIModel.availableModels` and are NOT re-serialized here.
         static let customModels = "customModels"
+        /// When true, tapping "Download & Add" in the HuggingFace file
+        /// picker dismisses the sheet and routes the user to the catalog
+        /// row showing progress (instead of keeping the sheet mounted as a
+        /// sticky download companion). Default false.
+        static let autoNavigateToCatalog = "autoNavigateToCatalog"
     }
     
     /// Notification names

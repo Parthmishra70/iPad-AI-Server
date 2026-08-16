@@ -210,7 +210,9 @@ struct ActiveModelCard: View {
                     
                     HStack {
                         Spacer()
-                        NavigationLink(destination: ModelsView()) {
+                        Button {
+                            AppRouter.shared.requestSwitch(to: .models)
+                        } label: {
                             Label("Manage Models", systemImage: "arrow.right")
                                 .font(.subheadline.weight(.medium))
                         }
@@ -228,7 +230,9 @@ struct ActiveModelCard: View {
                         .foregroundColor(.secondary)
                         .font(.headline)
                     
-                    NavigationLink(destination: ModelsView()) {
+                    Button {
+                        AppRouter.shared.requestSwitch(to: .models)
+                    } label: {
                         Label("Browse Models", systemImage: "arrow.right")
                             .font(.subheadline.weight(.medium))
                     }

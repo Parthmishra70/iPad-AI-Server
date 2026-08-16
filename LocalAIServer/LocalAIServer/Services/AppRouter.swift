@@ -46,6 +46,12 @@ final class AppRouter: ObservableObject {
     /// Observers can react via `onChange(of: token)`.
     @Published var pendingRequest: PendingRequest?
 
+    /// When set, ModelsView pre-fills its search field with this query and
+    /// surfaces the live HuggingFace search section. Used by the OOM
+    /// recovery flow so the user can find smaller quantizations of the
+    /// model they just failed to load.
+    @Published var pendingHFSearchQuery: String?
+
     struct PendingRequest: Equatable {
         let tab: AppTab
         let token: UUID
@@ -56,5 +62,12 @@ final class AppRouter: ObservableObject {
     func requestSwitch(to tab: AppTab) {
         selectedTab = tab
         pendingRequest = PendingRequest(tab: tab, token: UUID())
+    }
+
+    /// Deep-link to a HuggingFace search for a specific repo. Used by
+    /// the OOM recovery button on a model's error row.
+    func requestHFSearch(repoId: String) {
+        pendingHFSearchQuery = repoId
+        requestSwitch(to: .models)
     }
 }

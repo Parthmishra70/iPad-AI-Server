@@ -47,6 +47,10 @@ struct AIModel: Identifiable, Codable, Equatable {
     /// value read via `llama_model_n_ctx_train`.
     var contextLength: Int
     let sha256: String?
+    /// True when the model was added via HuggingFace search (vs. coming
+    /// from the built-in `AIModel.availableModels` catalog). Drives the
+    /// "from huggingface.co/{repo}" provenance line in the chat header.
+    var isHFSourced: Bool
     
     enum ModelFormat: String, Codable {
         case gguf = "GGUF"
@@ -56,7 +60,8 @@ struct AIModel: Identifiable, Codable, Equatable {
          fileSizeGB: Double, requiredRAM: Double, format: ModelFormat,
          sourceURL: URL? = nil,
          provider: String = "", hfRepo: String = "", ggufFilename: String = "",
-         quantization: String = "", contextLength: Int = 2048, sha256: String? = nil) {
+         quantization: String = "", contextLength: Int = 2048, sha256: String? = nil,
+         isHFSourced: Bool = false) {
         self.id = id
         self.name = name
         self.displayName = displayName
@@ -75,6 +80,7 @@ struct AIModel: Identifiable, Codable, Equatable {
         self.quantization = quantization
         self.contextLength = contextLength
         self.sha256 = sha256
+        self.isHFSourced = isHFSourced
     }
     
     /// Check if model can be loaded for inference
@@ -206,7 +212,8 @@ extension AIModel {
             ggufFilename: file.filename,
             quantization: file.quantization,
             contextLength: 4096,
-            sha256: nil
+            sha256: nil,
+            isHFSourced: true
         )
     }
 }

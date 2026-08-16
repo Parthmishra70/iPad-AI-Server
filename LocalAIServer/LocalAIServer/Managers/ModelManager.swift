@@ -317,9 +317,47 @@ class ModelManager: ObservableObject {
                 try FileManager.default.moveItem(at: tempURL, to: destinationURL)
                 try await self.validateDownload(model, at: destinationURL, expectedBytes: expectedBytes)
                 await self.updateModelState(modelId, state: .installed, progress: 1.0, localPath: destinationURL)
+
+                // Surface a toast so the user knows the download finished
+                // even if they've wandered off to another tab. The toast
+                // is sticky (no auto-dismiss) since it carries an action
+                // the user may want to invoke later.
+                ToastCenter.shared.show(
+                    ToastMessage(
+                        title: "Download complete",
+                        detail: "\(model.displayName) is ready to load.",
+                        systemImage: "checkmark.circle.fill",
+                        tint: .green,
+                        actionLabel: "Load & Chat",
+                        action: { [weak self] in
+                            guard let self else { return }
+                            Task {
+                                await self.loadModel(model)
+                                await MainActor.run {
+                                    ToastCenter.shared.dismiss()
+                                    AppRouter.shared.requestSwitch(to: .chat)
+                                }
+                            }
+                        }
+                    ),
+                    sticky: true
+                )
+
                 continuation.resume(returning: ())
             } catch {
                 await self.updateModelState(modelId, state: .notDownloaded, errorMessage: error.localizedDescription)
+
+                ToastCenter.shared.show(
+                    ToastMessage(
+                        title: "Download failed",
+                        detail: error.localizedDescription,
+                        systemImage: "exclamationmark.triangle.fill",
+                        tint: .red,
+                        actionLabel: nil,
+                        action: nil
+                    )
+                )
+
                 continuation.resume(throwing: error)
             }
         }
@@ -702,10 +740,24 @@ class ModelManager: ObservableObject {
     }
     
     // MARK: - Active Model
-    
+
     var activeModel: AIModel? {
         guard let id = activeModelId else { return nil }
         return models.first { $0.id == id }
+    }
+
+    /// The most recently completed model that is downloaded but NOT
+    /// currently loaded. Used by ChatView's idle card to suggest
+    /// "Load & Chat with this" when the user has at least one model
+    /// installed but no model is currently active.
+    var recentlyDownloadedModel: AIModel? {
+        // Prefer models whose state is .installed or .loaded-but-not-active.
+        // We sort by id reversely since HF-sourced models are appended to
+        // the catalog and built-ins come first; later additions = more recent.
+        let candidates = models.filter { m in
+            (m.state == .installed || m.state == .downloaded) && m.id != activeModelId
+        }
+        return candidates.last
     }
 }
 

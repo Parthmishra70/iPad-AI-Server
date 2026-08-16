@@ -7,47 +7,32 @@
 
 import SwiftUI
 
-enum Tab: String, CaseIterable, Identifiable {
-    case dashboard = "Dashboard"
-    case chat = "Chat"
-    case models = "Models"
-    case server = "API Server"
-    case docs = "API Docs"
-    case settings = "Settings"
-    
-    var id: String { rawValue }
-    
-    var icon: String {
-        switch self {
-        case .dashboard: return "gauge"
-        case .chat: return "bubble.left.and.bubble.right.fill"
-        case .models: return "brain.head.profile"
-        case .server: return "server.rack"
-        case .docs: return "doc.text"
-        case .settings: return "gear"
-        }
-    }
-}
+/// Primary tabs in the root sidebar. Aliased to `AppRouter`'s `AppTab`
+/// so any view can switch tabs via either:
+///   - a `@Binding<Tab>` passed down (used by ChatView/ModelsView), OR
+///   - `AppRouter.shared.requestSwitch(to: .chat)` (used by non-view
+///     code like `ModelManager`'s toast action).
+typealias Tab = AppTab
 
 struct ContentView: View {
     @EnvironmentObject var modelManager: ModelManager
     @EnvironmentObject var serverManager: ServerManager
-    
+    @ObservedObject private var appRouter = AppRouter.shared
+
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @State private var selectedTab: Tab = .dashboard
-    
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // Sidebar - Navigation
             List {
-                ForEach(Tab.allCases) { tab in
+                ForEach(AppTab.allCases) { tab in
                     Button {
-                        selectedTab = tab
+                        appRouter.selectedTab = tab
                     } label: {
                         Label(tab.rawValue, systemImage: tab.icon)
-                            .foregroundColor(selectedTab == tab ? .accentColor : .primary)
+                            .foregroundColor(appRouter.selectedTab == tab ? .accentColor : .primary)
                     }
-                    .listRowBackground(selectedTab == tab ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .listRowBackground(appRouter.selectedTab == tab ? Color.accentColor.opacity(0.1) : Color.clear)
                 }
             }
             .navigationTitle("Local AI Server")
@@ -57,20 +42,20 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            detailView(for: selectedTab)
+            detailView(for: appRouter.selectedTab)
         }
         .navigationSplitViewStyle(.balanced)
     }
-    
+
     @ViewBuilder
-    private func detailView(for tab: Tab) -> some View {
+    private func detailView(for tab: AppTab) -> some View {
         switch tab {
         case .dashboard:
             DashboardView()
         case .chat:
-            ChatView(selectedTab: $selectedTab)
+            ChatView(selectedTab: $appRouter.selectedTab)
         case .models:
-            ModelsView()
+            ModelsView(selectedTab: $appRouter.selectedTab)
         case .server:
             ServerView()
         case .docs:

@@ -169,7 +169,9 @@ struct ServerView: View {
                             ModelInfoBadge(icon: "text.bubble", text: "\(model.contextLength) ctx")
                         }
                         
-                        NavigationLink(destination: ModelsView()) {
+                        Button {
+                            AppRouter.shared.requestSwitch(to: .models)
+                        } label: {
                             Label("Manage Models", systemImage: "arrow.right")
                         }
                     }
@@ -183,7 +185,9 @@ struct ServerView: View {
                         Text("No model loaded")
                             .foregroundColor(.secondary)
                         
-                        NavigationLink(destination: ModelsView()) {
+                        Button {
+                            AppRouter.shared.requestSwitch(to: .models)
+                        } label: {
                             Label("Browse Models", systemImage: "arrow.right")
                         }
                         .buttonStyle(.borderedProminent)

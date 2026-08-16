@@ -9,6 +9,8 @@ import SwiftUI
 
 struct ModelsView: View {
     @EnvironmentObject var modelManager: ModelManager
+    @ObservedObject private var appRouter = AppRouter.shared
+    @Binding var selectedTab: Tab
     @State private var searchText: String = ""
     
     private var filteredModels: [AIModel] {
@@ -45,14 +47,14 @@ struct ModelsView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 350, maximum: 450), spacing: 16)], spacing: 16) {
                         ForEach(filteredModels) { model in
-                            ModelCard(model: model)
+                            ModelCard(model: model, selectedTab: $selectedTab)
                         }
                     }
                     .padding(24)
                 }
                 
                 // Live HuggingFace search: appears whenever the user has typed a query.
-                HuggingFaceSearchSection(query: searchText)
+                HuggingFaceSearchSection(query: searchText, selectedTab: $selectedTab)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
                 
@@ -71,6 +73,12 @@ struct ModelsView: View {
         }
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
                     prompt: "Search models by name, provider, or quantization")
+        .onChange(of: appRouter.pendingHFSearchQuery) { _, newValue in
+            if let query = newValue {
+                searchText = query
+                appRouter.pendingHFSearchQuery = nil
+            }
+        }
     }
 }
 
@@ -201,8 +209,9 @@ struct ModelCard: View {
     @EnvironmentObject var modelManager: ModelManager
     @State private var showDeleteConfirmation = false
     @State private var isDownloading = false
-    
+
     let model: AIModel
+    let selectedTab: Binding<Tab>
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -274,7 +283,12 @@ struct ModelCard: View {
             }
             
             // Action Button
-            ActionButton(model: model, isDownloading: $isDownloading, showDeleteConfirmation: $showDeleteConfirmation)
+            ActionButton(
+                model: model,
+                isDownloading: $isDownloading,
+                showDeleteConfirmation: $showDeleteConfirmation,
+                selectedTab: selectedTab
+            )
                 .padding(20)
         }
         .background(
@@ -396,10 +410,11 @@ struct InvalidStateView: View {
 struct ActionButton: View {
     @EnvironmentObject var modelManager: ModelManager
     @State private var isLoading = false
-    
+
     let model: AIModel
     @Binding var isDownloading: Bool
     @Binding var showDeleteConfirmation: Bool
+    let selectedTab: Binding<Tab>
     
     var body: some View {
         HStack(spacing: 12) {
@@ -461,25 +476,54 @@ struct ActionButton: View {
                     .frame(maxWidth: .infinity)
                 
             case .loaded:
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Color(.systemGreen))
-                    Text("Loaded & Active")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(Color(.systemGreen))
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(Color(.systemGreen))
+                        Text("Loaded")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundColor(Color(.systemGreen))
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 14)
+                    .background(Color(.systemGreen).opacity(0.15))
+                    .cornerRadius(10)
+
+                    Button {
+                        selectedTab.wrappedValue = .chat
+                    } label: {
+                        Label("Chat", systemImage: "bubble.left.fill")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(Color(.systemGreen))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color(.systemGreen).opacity(0.15))
-                .cornerRadius(10)
                 
             case .error:
-                Button(action: retry) {
-                    Label("Retry", systemImage: "arrow.clockwise")
-                        .frame(maxWidth: .infinity)
+                VStack(spacing: 8) {
+                    Button(action: retry) {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+
+                    if isOOMError && !model.hfRepo.isEmpty {
+                        Button {
+                            AppRouter.shared.requestHFSearch(repoId: model.hfRepo)
+                        } label: {
+                            Label("Browse smaller variants", systemImage: "arrow.down.right.and.arrow.up.left")
+                                .font(.caption.weight(.medium))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .foregroundColor(.orange)
+                    }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
                 
             default:
                 EmptyView()
@@ -496,7 +540,18 @@ struct ActionButton: View {
             }
         }
     }
-    
+
+    /// True when the model's error is specifically a context-allocation
+    /// OOM (the model's trained n_ctx exceeded available RAM on the
+    /// iPad). Drives the "Browse smaller variants" deep-link to a
+    /// lower-quantization alternative in the same repo.
+    private var isOOMError: Bool {
+        guard let msg = model.errorMessage else { return false }
+        return msg.localizedCaseInsensitiveContains("context window") ||
+               msg.localizedCaseInsensitiveContains("OOM") ||
+               msg.localizedCaseInsensitiveContains("allocate")
+    }
+
     private func startDownload() {
         isLoading = true
         Task {
@@ -591,6 +646,7 @@ struct ModelsInfoRow: View {
 struct HuggingFaceSearchSection: View {
     @EnvironmentObject var modelManager: ModelManager
     let query: String
+    @Binding var selectedTab: Tab
     
     @State private var results: [HuggingFaceModel] = []
     @State private var isLoading = false
@@ -654,7 +710,7 @@ struct HuggingFaceSearchSection: View {
         .navigationDestination(for: HFSearchRoute.self) { route in
             switch route {
             case .repo(let id):
-                HuggingFaceFilesView(repoId: id)
+                HuggingFaceFilesView(repoId: id, selectedTab: $selectedTab)
             }
         }
     }
@@ -741,6 +797,7 @@ struct HuggingFaceModelRow: View {
 struct HuggingFaceFilesView: View {
     @EnvironmentObject var modelManager: ModelManager
     let repoId: String
+    @Binding var selectedTab: Tab
 
     @State private var files: [HuggingFaceFile] = []
     @State private var isLoading = true
@@ -752,6 +809,14 @@ struct HuggingFaceFilesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // If a model from THIS repo is currently downloading (e.g.
+                // the user tapped "Hide" in the sheet), surface a compact
+                // banner with progress and a hop-back-to-catalog button.
+                if let downloading = activeDownloadFromThisRepo {
+                    DownloadingFromRepoBanner(model: downloading, selectedTab: $selectedTab)
+                        .padding(.bottom, 4)
+                }
+
                 if isLoading {
                     VStack(spacing: 12) {
                         ProgressView()
@@ -824,10 +889,15 @@ struct HuggingFaceFilesView: View {
             await load()
         }
         .sheet(item: $pickingFile) { file in
-            AddCustomModelSheet(repoId: repoId, file: file) { model in
-                modelManager.addCustomModel(model)
-                pickingFile = nil
-            }
+            AddCustomModelSheet(
+                repoId: repoId,
+                file: file,
+                selectedTab: $selectedTab,
+                onAdd: { model in
+                    modelManager.addCustomModel(model)
+                    pickingFile = nil
+                }
+            )
             .presentationDetents([.medium, .large])
         }
     }
@@ -848,6 +918,59 @@ struct HuggingFaceFilesView: View {
         } catch {
             errorMessage = HuggingFaceError.wrap(error).errorDescription
         }
+    }
+
+    /// If a model sourced from THIS repo is mid-download, return it so the
+    /// banner shows progress + a Go-to-Models short-cut.
+    private var activeDownloadFromThisRepo: AIModel? {
+        modelManager.models.first { model in
+            (model.state == .downloading || model.state == .validating) &&
+            model.hfRepo == repoId
+        }
+    }
+}
+
+private struct DownloadingFromRepoBanner: View {
+    let model: AIModel
+    @Binding var selectedTab: Tab
+    @EnvironmentObject var modelManager: ModelManager
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView(value: model.downloadProgress)
+                .tint(.blue)
+                .frame(width: 80)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.name)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text("\(Int(model.downloadProgress * 100))% · \(model.formattedDownloadedSize) / \(model.formattedTotalSize)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                selectedTab = .models
+            } label: {
+                Label("Go to Models", systemImage: "arrow.right.circle")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBlue).opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 
@@ -899,62 +1022,304 @@ struct HuggingFaceFileRow: View {
 
 struct AddCustomModelSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var modelManager: ModelManager
     let repoId: String
     let file: HuggingFaceFile
+    @Binding var selectedTab: Tab
     let onAdd: (AIModel) -> Void
-    
+
+    @AppStorage(AppConstants.UserDefaultsKeys.autoNavigateToCatalog) private var autoNavigateToCatalog = false
+
+    @State private var phase: Phase = .confirm
+    @State private var addedModel: AIModel?
+    @State private var loadError: String?
+
+    /// Drives the 4 phases of the sheet's state machine.
+    enum Phase: Equatable {
+        case confirm
+        case downloading
+        case readyToLoad
+        case loaded
+    }
+
     var body: some View {
         NavigationView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(file.filename)
-                        .font(.headline)
-                    if let size = file.sizeGB {
-                        Text(String(format: "%.2f GB · %@", size, file.quantization))
-                            .foregroundColor(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    fileHeader
+
+                    ramWarning
+
+                    if autoNavigateToCatalog && phase == .confirm {
+                        autoNavNote
                     }
+
+                    Spacer(minLength: 8)
+
+                    phaseView
                 }
-                
-                if let sizeGB = file.sizeGB {
-                    let physicalRAM = Double(ProcessInfo.processInfo.physicalMemory) / (1024 * 1024 * 1024)
-                    let requiredRAM = max(2.0, (sizeGB * 1.5).rounded(.up))
-                    if requiredRAM > physicalRAM {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("May not fit on this device", systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.orange)
-                            Text("This file likely needs ~\(Int(requiredRAM)) GB of RAM. Your iPad reports ~\(String(format: "%.1f", physicalRAM)) GB. You can still download, but loading may fail.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                        .background(Color.orange.opacity(0.12))
-                        .cornerRadius(10)
-                    }
-                }
-                
-                Spacer()
-                
-                Button {
-                    let model = AIModel.fromHuggingFace(repoId: repoId, file: file)
-                    onAdd(model)
-                    Task {
-                        try? await ModelManager.shared.downloadModel(model)
-                    }
-                    dismiss()
-                } label: {
-                    Label("Download & Add", systemImage: "arrow.down.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .padding(20)
             }
-            .padding(20)
-            .navigationTitle("Add Custom Model")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cancel") { dismiss() }
+                        .disabled(phase == .downloading)
+                }
+            }
+        }
+        .onChange(of: phase) { _, new in
+            if new == .loaded {
+                // After successful load, give it a moment to render,
+                // then auto-switch to the Chat tab so the user can
+                // actually use the model they just downloaded.
+                Task {
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    await MainActor.run {
+                        dismiss()
+                        selectedTab = .chat
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Phase UI
+
+    @ViewBuilder
+    private var phaseView: some View {
+        switch phase {
+        case .confirm:
+            Button {
+                startDownloadAndAdd()
+            } label: {
+                Label("Download & Add", systemImage: "arrow.down.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+        case .downloading:
+            downloadingCard
+
+        case .readyToLoad:
+            loadingHint
+            Button {
+                loadAddedModel()
+            } label: {
+                Label("Load Model", systemImage: "arrow.up.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(modelManager.isLoadingModel)
+
+            Button {
+                // Keep the model installed; just leave the sheet.
+                dismiss()
+            } label: {
+                Text("Load from Models tab later")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+
+        case .loaded:
+            VStack(spacing: 12) {
+                Label("Loaded & Active", systemImage: "checkmark.circle.fill")
+                    .font(.headline)
+                    .foregroundColor(.green)
+
+                Text("Opening Chat…")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var downloadingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProgressView(value: currentProgress)
+                .tint(.blue)
+            HStack {
+                Text("\(Int(currentProgress * 100))%")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(progressSize)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Text("Downloading from \(repoId)…")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    if let m = addedModel {
+                        modelManager.cancelDownload(for: m)
+                    }
+                    dismiss()
+                } label: {
+                    Label("Cancel", systemImage: "stop.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .foregroundColor(.red)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Hide", systemImage: "eye.slash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var loadingHint: some View {
+        if let m = addedModel {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Downloaded", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.green)
+                Text("\(file.filename) (\(String(format: "%.2f", m.fileSizeGB)) GB) is ready to load.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 4)
+        }
+        if let err = loadError {
+            Text(err)
+                .font(.caption)
+                .foregroundColor(.red)
+                .padding(.bottom, 4)
+        }
+    }
+
+    @ViewBuilder
+    private var fileHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(file.filename)
+                .font(.headline)
+            if let size = file.sizeGB {
+                Text(String(format: "%.2f GB · %@", size, file.quantization))
+                    .foregroundColor(.secondary)
+            }
+            if !file.looksLikeInstruct {
+                Label("Base model — may not chat well", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ramWarning: some View {
+        if let sizeGB = file.sizeGB {
+            let physicalRAM = Double(ProcessInfo.processInfo.physicalMemory) / (1024 * 1024 * 1024)
+            let requiredRAM = max(2.0, (sizeGB * 1.5).rounded(.up))
+            if requiredRAM > physicalRAM {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("May not fit on this device", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.orange)
+                    Text("This file likely needs ~\(Int(requiredRAM)) GB of RAM. Your iPad reports ~\(String(format: "%.1f", physicalRAM)) GB. You can still download, but loading may fail.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.12))
+                .cornerRadius(10)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var autoNavNote: some View {
+        Label("Auto-navigate to catalog is ON — the sheet will dismiss after you tap Download & Add.", systemImage: "info.circle")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.vertical, 4)
+    }
+
+    // MARK: - State
+
+    private var currentProgress: Double {
+        guard let m = addedModel,
+              let idx = modelManager.models.firstIndex(where: { $0.id == m.id }) else {
+            return 0
+        }
+        return modelManager.models[idx].downloadProgress
+    }
+
+    private var progressSize: String {
+        guard let m = addedModel else { return "" }
+        let downloaded = Int64(currentProgress * m.fileSizeGB * 1024 * 1024 * 1024)
+        return "\(ByteCountFormatter.string(fromByteCount: max(0, downloaded), countStyle: .file)) / \(m.formattedTotalSize)"
+    }
+
+    private var navigationTitle: String {
+        switch phase {
+        case .confirm: return "Add Custom Model"
+        case .downloading: return "Downloading"
+        case .readyToLoad: return "Ready to Load"
+        case .loaded: return "Ready to Chat"
+        }
+    }
+
+    private func startDownloadAndAdd() {
+        let model = AIModel.fromHuggingFace(repoId: repoId, file: file)
+        addedModel = model
+        onAdd(model)
+
+        if autoNavigateToCatalog {
+            dismiss()
+            return
+        }
+
+        phase = .downloading
+        Task {
+            do {
+                try await modelManager.downloadModel(model)
+                await MainActor.run {
+                    phase = .readyToLoad
+                }
+            } catch {
+                // Cancellation propagates here too — keep the sheet open so
+                // the user sees the cancel worked, then drop back to confirm.
+                await MainActor.run {
+                    if (error as? URLError)?.code == .cancelled {
+                        phase = .confirm
+                    } else {
+                        loadError = error.localizedDescription
+                        phase = .confirm
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadAddedModel() {
+        guard let m = addedModel else { return }
+        loadError = nil
+        Task {
+            await modelManager.loadModel(m)
+            await MainActor.run {
+                // Check that load actually succeeded before transitioning
+                if modelManager.activeModelId == m.id {
+                    phase = .loaded
+                } else if let idx = modelManager.models.firstIndex(where: { $0.id == m.id }),
+                          case .error = modelManager.models[idx].state {
+                    loadError = modelManager.models[idx].errorMessage
+                    phase = .readyToLoad
                 }
             }
         }
@@ -962,6 +1327,6 @@ struct AddCustomModelSheet: View {
 }
 
 #Preview {
-    ModelsView()
+    ModelsView(selectedTab: .constant(.models))
         .environmentObject(ModelManager.shared)
 }

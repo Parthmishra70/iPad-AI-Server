@@ -13,6 +13,11 @@ struct SettingsView: View {
     
     @AppStorage("showAdvancedSettings") private var showAdvancedSettings = false
     @AppStorage("enableLogging") private var enableLogging = false
+    /// When true, tapping "Download & Add" in the HuggingFace file picker
+    /// dismisses the sheet and routes the user to the catalog row showing
+    /// progress. When false (default), the sheet stays mounted as a sticky
+    /// download companion that transitions through Download -> Load -> Chat.
+    @AppStorage(AppConstants.UserDefaultsKeys.autoNavigateToCatalog) private var autoNavigateToCatalog = false
     
     var body: some View {
         Form {
@@ -40,6 +45,12 @@ struct SettingsView: View {
                 }
                 
                 Toggle("Show Advanced Settings", isOn: $showAdvancedSettings)
+            }
+
+            // HuggingFace Section
+            Section(header: SettingsSectionHeader(title: "HuggingFace", icon: "globe", color: .orange)) {
+                Toggle("Auto-navigate to catalog after add", isOn: $autoNavigateToCatalog)
+                    .accessibilityHint("When on, tapping 'Download & Add' dismisses the sheet and routes you to the new model's catalog row. When off, the sheet stays mounted showing download progress, then transitions to Load and Start Chatting.")
             }
             
             // Storage Section

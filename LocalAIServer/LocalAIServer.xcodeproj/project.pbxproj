@@ -32,6 +32,9 @@ A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200
 		A1000019 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020 /* ChatView.swift */; };
 		B1000001 /* SkeletonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB3F8D1 /* SkeletonView.swift */; };
 		41000001 /* ErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41907551 /* ErrorBanner.swift */; };
+		A1000023 /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000023 /* AppRouter.swift */; };
+		A1000024 /* ToastCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000024 /* ToastCenter.swift */; };
+		A1000025 /* ToastBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000025 /* ToastBanner.swift */; };
 		C1000001 /* Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000001 /* Capabilities.swift */; };
 		C1000002 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000002 /* Config.swift */; };
 		C1000003 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000003 /* Conversation.swift */; };
@@ -72,6 +75,9 @@ A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200
 		A2000020 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		BFB3F8D1 /* SkeletonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkeletonView.swift; sourceTree = "<group>"; };
 		41907551 /* ErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBanner.swift; sourceTree = "<group>"; };
+		A2000023 /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		A2000024 /* ToastCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastCenter.swift; sourceTree = "<group>"; };
+		A2000025 /* ToastBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastBanner.swift; sourceTree = "<group>"; };
 		A3000001 /* LocalAIServer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LocalAIServer.entitlements; sourceTree = "<group>"; };
 		C2000001 /* Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Capabilities.swift; sourceTree = "<group>"; };
 		C2000002 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
@@ -157,6 +163,7 @@ A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200
 				A2000020 /* ChatView.swift */,
 				BFB3F8D1 /* SkeletonView.swift */,
 				41907551 /* ErrorBanner.swift */,
+				A2000025 /* ToastBanner.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -178,6 +185,8 @@ A1000018 /* QRCodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200
 				A2000015 /* APIKeyService.swift */,
 				A2000021 /* HuggingFaceService.swift */,
 				A2000022 /* ModelDownloadDelegate.swift */,
+				A2000023 /* AppRouter.swift */,
+				A2000024 /* ToastCenter.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -298,7 +307,10 @@ A5000009 /* Models */ = {
 			A1000018 /* QRCodeView.swift in Sources */,
 			A1000019 /* ChatView.swift in Sources */,
 			B1000001 /* SkeletonView.swift in Sources */,
-			41000001 /* ErrorBanner.swift in Sources */,
+				41000001 /* ErrorBanner.swift in Sources */,
+				A1000023 /* AppRouter.swift in Sources */,
+				A1000024 /* ToastCenter.swift in Sources */,
+				A1000025 /* ToastBanner.swift in Sources */,
 		);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

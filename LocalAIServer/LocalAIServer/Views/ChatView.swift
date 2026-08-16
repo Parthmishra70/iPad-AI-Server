@@ -31,6 +31,8 @@ struct ChatView: View {
     @EnvironmentObject var modelManager: ModelManager
     @EnvironmentObject var serverManager: ServerManager
     
+    @Binding var selectedTab: Tab
+    
     @State private var messages: [LocalChatMessage] = []
     @State private var inputText: String = ""
     @State private var isStreaming = false
@@ -38,82 +40,95 @@ struct ChatView: View {
     @State private var showModelNotLoadedAlert = false
     @State private var temperature: Double = 0.7
     @State private var maxTokens: Int = 512
+    @State private var systemPrompt: String = ""
     @State private var showSettings = false
+    @State private var streamTask: Task<Void, Never>?
     
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Model indicator header
-                if let activeModel = modelManager.activeModel {
-                    ActiveModelHeader(model: activeModel, isStreaming: isStreaming)
-                } else {
-                    NoModelHeader()
-                }
-                
-                Divider()
-                
-                // Messages area
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 16) {
-                            if messages.isEmpty && !isStreaming {
-                                EmptyStateView()
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.top, 60)
-                            }
-                            
-                            ForEach(messages) { message in
-                                MessageBubble(message: message)
-                                    .id(message.id)
-                            }
-                            
-                            if isStreaming {
-                                StreamingResponseView(text: currentResponse)
-                                    .id("streaming")
-                            }
-                        }
-                        .padding(20)
-                    }
-                    .onChange(of: messages.count) { _, _ in
-                        if let last = messages.last {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                    .onChange(of: isStreaming) { _, newValue in
-                        if newValue {
-                            withAnimation(.easeOut(duration: 0.3)) {
-                                proxy.scrollTo("streaming", anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-                
-                Divider()
-                
-                // Input area
-                ChatInputView(
-                    inputText: $inputText,
-                    isStreaming: isStreaming,
-                    temperature: $temperature,
-                    maxTokens: $maxTokens,
-                    showSettings: $showSettings,
-                    onSend: sendMessage
-                )
+        VStack(spacing: 0) {
+            // Model indicator header
+            if let activeModel = modelManager.activeModel {
+                ActiveModelHeader(model: activeModel, isStreaming: isStreaming)
+            } else {
+                NoModelHeader()
             }
-            .navigationTitle("Chat")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: clearChat) {
-                        Image(systemName: "trash")
-                            .foregroundColor(messages.isEmpty ? .secondary : .red)
+            
+            Divider()
+            
+            // Messages area
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 16) {
+                        if messages.isEmpty && !isStreaming {
+                            EmptyStateView()
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 60)
+                        }
+                        
+                        ForEach(messages) { message in
+                            MessageBubble(
+                                message: message,
+                                onRegenerate: message.role == "assistant" ? { regenerateMessage(message) } : nil,
+                                onDelete: { deleteMessage(message) }
+                            )
+                                .id(message.id)
+                        }
+                        
+                        if isStreaming {
+                            StreamingResponseView(text: currentResponse)
+                                .id("streaming")
+                        }
                     }
-                    .disabled(messages.isEmpty)
+                    .padding(20)
                 }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: messages.count) { _, _ in
+                    if let last = messages.last {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: isStreaming) { _, newValue in
+                    if newValue {
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            proxy.scrollTo("streaming", anchor: .bottom)
+                        }
+                    }
+                }
+            }
+            
+            Divider()
+            
+            // Input area
+            ChatInputView(
+                inputText: $inputText,
+                isStreaming: isStreaming,
+                temperature: $temperature,
+                maxTokens: $maxTokens,
+                showSettings: $showSettings,
+                onSend: sendMessage,
+                onStop: stopStreaming
+            )
+        }
+        .navigationTitle("Chat")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { haptic(); clearChat() }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(messages.isEmpty ? .secondary : .red)
+                }
+                .disabled(messages.isEmpty)
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isStreaming {
+                    Button(action: { haptic(); stopStreaming() }) {
+                        Label("Stop", systemImage: "stop.fill")
+                            .foregroundColor(.red)
+                    }
+                } else {
                     Menu {
                         if let model = modelManager.activeModel {
                             Text("Model: \(model.displayName)")
@@ -122,11 +137,11 @@ struct ChatView: View {
                             Divider()
                         }
                         
-                        Button(action: { showSettings = true }) {
+                        Button(action: { haptic(.light); showSettings = true }) {
                             Label("Settings", systemImage: "slider.horizontal.3")
                         }
                         
-                        Button(role: .destructive, action: clearChat) {
+                        Button(role: .destructive, action: { haptic(); clearChat() }) {
                             Label("Clear Chat", systemImage: "trash")
                         }
                         .disabled(messages.isEmpty)
@@ -136,20 +151,21 @@ struct ChatView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSettings) {
-                ChatSettingsView(
-                    temperature: $temperature,
-                    maxTokens: $maxTokens
-                )
+        }
+        .sheet(isPresented: $showSettings) {
+            ChatSettingsView(
+                temperature: $temperature,
+                maxTokens: $maxTokens,
+                systemPrompt: $systemPrompt
+            )
+        }
+        .alert("No Model Loaded", isPresented: $showModelNotLoadedAlert) {
+            Button("Load Model") {
+                selectedTab = .models
             }
-            .alert("No Model Loaded", isPresented: $showModelNotLoadedAlert) {
-                Button("Load Model") {
-                    // Navigate to models view would require more complex navigation
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Please load a model from the Models tab before chatting.")
-            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Please load a model from the Models tab before chatting.")
         }
     }
     
@@ -162,20 +178,27 @@ struct ChatView: View {
         
         let userMessage = LocalChatMessage(role: "user", content: inputText)
         messages.append(userMessage)
+        trimMessageHistory()
         inputText = ""
         isStreaming = true
         currentResponse = ""
         
-        Task {
+        streamTask = Task {
             do {
                 // Convert LocalChatMessage to ChatMessage for the API
-                let chatMessages = messages.map { ChatMessage(role: $0.role, content: $0.content) }
+                var chatMessages = messages.map { ChatMessage(role: $0.role, content: $0.content) }
+                
+                // Prepend system prompt if provided
+                if !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chatMessages.insert(ChatMessage(role: "system", content: systemPrompt), at: 0)
+                }
                 
                 for try await token in modelManager.streamResponse(
                     messages: chatMessages,
                     temperature: temperature,
                     maxTokens: maxTokens
                 ) {
+                    try Task.checkCancellation()
                     await MainActor.run {
                         currentResponse += token
                     }
@@ -184,8 +207,21 @@ struct ChatView: View {
                 await MainActor.run {
                     let assistantMessage = LocalChatMessage(role: "assistant", content: currentResponse)
                     messages.append(assistantMessage)
+                    trimMessageHistory()
                     currentResponse = ""
                     isStreaming = false
+                    streamTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    if !currentResponse.isEmpty {
+                        let assistantMessage = LocalChatMessage(role: "assistant", content: currentResponse)
+                        messages.append(assistantMessage)
+                        trimMessageHistory()
+                    }
+                    currentResponse = ""
+                    isStreaming = false
+                    streamTask = nil
                 }
             } catch {
                 await MainActor.run {
@@ -194,16 +230,56 @@ struct ChatView: View {
                         content: "Error: \(error.localizedDescription)"
                     )
                     messages.append(errorMessage)
+                    trimMessageHistory()
                     currentResponse = ""
                     isStreaming = false
+                    streamTask = nil
                 }
             }
         }
     }
     
+    private func stopStreaming() {
+        streamTask?.cancel()
+    }
+    
+    private func trimMessageHistory() {
+        let maxMessages = 50
+        if messages.count > maxMessages {
+            messages.removeFirst(messages.count - maxMessages)
+        }
+    }
+    
+    private func haptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle = .medium) {
+        UIImpactFeedbackGenerator(style: style).impactOccurred()
+    }
+    
     private func clearChat() {
+        streamTask?.cancel()
         messages.removeAll()
         currentResponse = ""
+        isStreaming = false
+    }
+    
+    private func regenerateMessage(_ message: LocalChatMessage) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        guard index > 0 else { return }
+        
+        // Remove this message and all subsequent messages
+        messages.removeSubrange(index...)
+        
+        // Re-send the user message that preceded this assistant message
+        if index > 0 {
+            let userMessage = messages[index - 1]
+            if userMessage.role == "user" {
+                inputText = userMessage.content
+                sendMessage()
+            }
+        }
+    }
+    
+    private func deleteMessage(_ message: LocalChatMessage) {
+        messages.removeAll { $0.id == message.id }
     }
 }
 
@@ -353,6 +429,8 @@ struct EmptyStateView: View {
 
 struct MessageBubble: View {
     let message: LocalChatMessage
+    var onRegenerate: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
     
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
@@ -380,6 +458,32 @@ struct MessageBubble: View {
                 Spacer(minLength: 60)
             }
         }
+        .contextMenu {
+            Button {
+                UIPasteboard.general.string = message.content
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            
+            if message.role == "assistant", let onRegenerate = onRegenerate {
+                Divider()
+                Button {
+                    onRegenerate()
+                } label: {
+                    Label("Regenerate", systemImage: "arrow.clockwise")
+                }
+            }
+            
+            if let onDelete = onDelete {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
     }
     
     @ViewBuilder
@@ -403,8 +507,7 @@ struct MessageBubble: View {
     }
     
     private var messageContent: some View {
-        Text(message.content)
-            .font(.body)
+        MarkdownText(markdown: message.content)
             .textSelection(.enabled)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -431,6 +534,22 @@ struct MessageBubble: View {
     }
 }
 
+// MARK: - Markdown Text (using native AttributedString)
+
+struct MarkdownText: View {
+    let markdown: String
+    
+    var body: some View {
+        if let attributed = try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .full)) {
+            Text(attributed)
+                .font(.body)
+        } else {
+            Text(markdown)
+                .font(.body)
+        }
+    }
+}
+
 // MARK: - Streaming Response View
 
 struct StreamingResponseView: View {
@@ -454,8 +573,7 @@ struct StreamingResponseView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                Text(text.isEmpty ? " " : text)
-                    .font(.body)
+                MarkdownText(markdown: text.isEmpty ? " " : text)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(Color(.systemGray5))
@@ -503,30 +621,60 @@ struct ChatInputView: View {
     @Binding var maxTokens: Int
     @Binding var showSettings: Bool
     let onSend: () -> Void
+    let onStop: () -> Void
     
     @FocusState private var isFocused: Bool
     
+    private let temperatureOptions: [Double] = [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0]
+    private let maxTokensOptions: [Int] = [64, 128, 256, 512, 1024, 2048, 4096]
+    
     var body: some View {
         VStack(spacing: 10) {
-            // Settings chips
+            // Settings chips (interactive menus)
             HStack(spacing: 8) {
-                Label("Temp: \(temperature, specifier: "%.1f")", systemImage: "thermometer")
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(.systemGray5))
-                    .cornerRadius(6)
+                Menu {
+                    ForEach(temperatureOptions, id: \.self) { value in
+                        Button(action: { temperature = value; UIImpactFeedbackGenerator(style: .light).impactOccurred() }) {
+                            HStack {
+                                Text(value, format: .number.precision(.fractionLength(1)))
+                                if abs(temperature - value) < 0.05 {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Temp: \(temperature, specifier: "%.1f")", systemImage: "thermometer")
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(6)
+                }
                 
-                Label("Max: \(maxTokens)", systemImage: "text.badge.plus")
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(.systemGray5))
-                    .cornerRadius(6)
+                Menu {
+                    ForEach(maxTokensOptions, id: \.self) { value in
+                        Button(action: { maxTokens = value; UIImpactFeedbackGenerator(style: .light).impactOccurred() }) {
+                            HStack {
+                                Text("\(value)")
+                                if maxTokens == value {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Max: \(maxTokens)", systemImage: "text.badge.plus")
+                        .font(.caption2)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color(.systemGray5))
+                        .cornerRadius(6)
+                }
                 
                 Spacer()
                 
-                Button(action: { showSettings = true }) {
+                Button(action: { showSettings = true; UIImpactFeedbackGenerator(style: .light).impactOccurred() }) {
                     Image(systemName: "slider.horizontal.3")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -534,7 +682,7 @@ struct ChatInputView: View {
             }
             .padding(.horizontal, 16)
             
-            // Input field and send button
+            // Input field and send/stop button
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("Message...", text: $inputText, axis: .vertical)
                     .focused($isFocused)
@@ -549,17 +697,28 @@ struct ChatInputView: View {
                         if !isStreaming { onSend() }
                     }
                 
-                Button(action: onSend) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(canSend ? .accentColor : .secondary)
+                if isStreaming {
+                    Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); onStop() }) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.red)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                } else {
+                    Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); onSend() }) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(canSend ? .accentColor : .secondary)
+                    }
+                    .disabled(!canSend)
+                    .scaleEffect(canSend ? 1.0 : 0.9)
+                    .animation(.spring(response: 0.3), value: canSend)
+                    .transition(.scale.combined(with: .opacity))
                 }
-                .disabled(!canSend)
-                .scaleEffect(canSend ? 1.0 : 0.9)
-                .animation(.spring(response: 0.3), value: canSend)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
+            .animation(.spring(response: 0.3), value: isStreaming)
         }
         .background(Color(.systemBackground))
     }
@@ -575,6 +734,7 @@ struct ChatSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var temperature: Double
     @Binding var maxTokens: Int
+    @Binding var systemPrompt: String
     
     var body: some View {
         NavigationView {
@@ -612,10 +772,17 @@ struct ChatSettingsView: View {
                     }
                 }
                 
+                Section(header: Text("System Prompt"), footer: Text("Optional system instruction that guides the model's behavior")) {
+                    TextField("System prompt (optional)", text: $systemPrompt, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(3...6)
+                }
+                
                 Section {
                     Button("Reset to Defaults") {
                         temperature = 0.7
                         maxTokens = 512
+                        systemPrompt = ""
                     }
                     .foregroundColor(.red)
                 }
@@ -628,7 +795,7 @@ struct ChatSettingsView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -655,7 +822,7 @@ struct RoundedCorner: Shape {
 }
 
 #Preview {
-    ChatView()
+    ChatView(selectedTab: .constant(.chat))
         .environmentObject(ModelManager.shared)
         .environmentObject(ServerManager.shared)
 }

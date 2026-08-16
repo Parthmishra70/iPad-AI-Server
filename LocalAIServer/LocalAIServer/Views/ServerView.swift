@@ -227,7 +227,7 @@ struct ServerView: View {
     private func toggleServer() {
         Task {
             if serverManager.isRunning {
-                serverManager.stopServer()
+                await serverManager.stopServer()
             } else {
                 await serverManager.startServer()
             }
@@ -244,7 +244,7 @@ struct ServerView: View {
         
         if serverManager.isRunning {
             Task {
-                serverManager.stopServer()
+                await serverManager.stopServer()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 await serverManager.startServer()
             }
@@ -330,7 +330,7 @@ struct ServerStatusHeader: View {
                     set: { _ in 
                         Task {
                             if serverManager.isRunning {
-                                serverManager.stopServer()
+                                await serverManager.stopServer()
                             } else {
                                 await serverManager.startServer()
                             }

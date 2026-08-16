@@ -12,36 +12,40 @@ struct DashboardView: View {
     @EnvironmentObject var serverManager: ServerManager
     
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: 20) {
-                // Server Status Card
-                ServerStatusCard()
-                    .gridCellColumns(gridColumns.count == 1 ? 1 : 2)
-                
-                // Active Model Card
-                ActiveModelCard()
-                
-                // Network Info Card
-                NetworkInfoCard()
-                
-                // Quick Stats
-                QuickStatsCard()
-                    .gridCellColumns(gridColumns.count == 1 ? 1 : 2)
+        GeometryReader { geometry in
+            let columns = gridColumns(for: geometry.size.width)
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 20) {
+                    // Server Status Card
+                    ServerStatusCard()
+                        .gridCellColumns(columns.count == 1 ? 1 : 2)
+                    
+                    // Active Model Card
+                    ActiveModelCard()
+                    
+                    // Network Info Card
+                    NetworkInfoCard()
+                    
+                    // Quick Stats
+                    QuickStatsCard()
+                        .gridCellColumns(columns.count == 1 ? 1 : 2)
+                }
+                .padding(24)
+                .animation(.easeInOut(duration: 0.3), value: columns.count)
             }
-            .padding(24)
-            .animation(.easeInOut(duration: 0.3), value: gridColumns.count)
         }
         .navigationTitle("Dashboard")
         .refreshable {
-            await serverManager.startServer()
+            modelManager.loadSavedModels()
+            serverManager.refreshIPAddress()
         }
         .background(Color(.systemGroupedBackground))
     }
     
-    private var gridColumns: [GridItem] {
-        // This will be determined by the geometry reader in practice
-        // For now using adaptive columns that work well on iPad
-        [GridItem(.adaptive(minimum: 380, maximum: 500), spacing: 20)]
+    private func gridColumns(for width: CGFloat) -> [GridItem] {
+        let minWidth: CGFloat = 380
+        let count = max(1, Int(width / minWidth))
+        return Array(repeating: GridItem(.flexible(), spacing: 20), count: count)
     }
 }
 
@@ -134,7 +138,7 @@ struct ServerStatusCard: View {
     private func toggleServer() {
         Task {
             if serverManager.isRunning {
-                serverManager.stopServer()
+                await serverManager.stopServer()
             } else {
                 await serverManager.startServer()
             }

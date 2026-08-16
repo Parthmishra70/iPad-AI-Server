@@ -64,19 +64,22 @@ struct KeychainHelper {
     
     func save(key: String, forKey: String) {
         guard let data = key.data(using: .utf8) else { return }
-        
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrAccount as String: forKey,
-            kSecValueData as String: data
+            kSecAttrAccount as String: forKey
         ]
-        
-        // Try to update existing item first
+
+        // Try to update existing item first (search by class + account only)
         let attributes: [String: Any] = [kSecValueData as String: data]
-        SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+
         // If update fails (item doesn't exist), add new item
-        SecItemAdd(query as CFDictionary, nil)
+        if updateStatus == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            SecItemAdd(addQuery as CFDictionary, nil)
+        }
     }
     
     func load(key: String) -> String? {

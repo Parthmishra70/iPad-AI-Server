@@ -33,7 +33,7 @@ class ServerManager: ObservableObject {
         
         apiKey = KeychainHelper.load(key: "apiKey")
         
-        getLocalIPAddress()
+        refreshIPAddress()
     }
     
     func saveConfiguration() {
@@ -58,7 +58,7 @@ class ServerManager: ObservableObject {
         }
     }
     
-    func stopServer() {
+    func stopServer() async {
         listener?.cancel()
         for connection in connections {
             connection.connection.cancel()
@@ -68,6 +68,9 @@ class ServerManager: ObservableObject {
         startTime = nil
         
         print("Server stopped")
+        
+        // Give time for cleanup
+        try? await Task.sleep(nanoseconds: 100_000_000)
     }
     
     // MARK: - Network Setup
@@ -365,7 +368,7 @@ class ServerManager: ObservableObject {
     
     // MARK: - Network Info
     
-    private func getLocalIPAddress() {
+    func refreshIPAddress() {
         var address: String?
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         

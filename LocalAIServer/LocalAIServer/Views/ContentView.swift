@@ -68,7 +68,7 @@ struct ContentView: View {
         case .dashboard:
             DashboardView()
         case .chat:
-            ChatView()
+            ChatView(selectedTab: $selectedTab)
         case .models:
             ModelsView()
         case .server:

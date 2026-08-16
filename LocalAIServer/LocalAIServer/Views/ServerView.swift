@@ -34,7 +34,7 @@ struct ServerView: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 100)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: portText) { newValue in
+                        .onChange(of: portText) { _, newValue in
                             updatePort(newValue)
                         }
                         .onSubmit {

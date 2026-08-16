@@ -298,7 +298,7 @@ class ModelManager: ObservableObject {
     
     private func formatMessagesForModel(_ messages: [ChatMessage], model: AIModel?) async -> String {
         guard let model = model,
-              let modelPtr = await getModelPointer(for: model) else {
+              let modelPtr = getModelPointer(for: model) else {
             return messages.map { "\($0.role): \($0.content)" }.joined(separator: "\n")
         }
         
@@ -354,9 +354,9 @@ class ModelManager: ObservableObject {
         }.value
     }
     
-    private func getModelPointer(for model: AIModel) async -> OpaquePointer? {
+    private func getModelPointer(for model: AIModel) -> OpaquePointer? {
         guard let engine = inferenceEngine as? LlamaCppInferenceEngine else { return nil }
-        return await engine.getModelPointer()
+        return engine.getModelPointer()
     }
     
     // MARK: - Active Model

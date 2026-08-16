@@ -74,15 +74,15 @@ struct ChatView: View {
                         }
                         .padding(20)
                     }
-                    .onChange(of: messages.count) { _ in
+                    .onChange(of: messages.count) { _, _ in
                         if let last = messages.last {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo(last.id, anchor: .bottom)
                             }
                         }
                     }
-                    .onChange(of: isStreaming) { _ in
-                        if isStreaming {
+                    .onChange(of: isStreaming) { _, newValue in
+                        if newValue {
                             withAnimation(.easeOut(duration: 0.3)) {
                                 proxy.scrollTo("streaming", anchor: .bottom)
                             }

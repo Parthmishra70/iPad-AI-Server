@@ -68,13 +68,13 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
                 throw InferenceError.inferenceFailed
             }
             
-            await self.setLoaded(model: loadedModel, context: loadedContext, vocab: loadedVocab)
+            self.setLoaded(model: loadedModel, context: loadedContext, vocab: loadedVocab)
             print("Model loaded from: \(path.path)")
         }.value
     }
     
     func generate(prompt: String, temperature: Double, maxTokens: Int) async throws -> String {
-        let (context, vocab) = try await getContextAndVocab()
+        let (context, vocab) = try getContextAndVocab()
         
         return try await Task.detached(priority: .userInitiated) { [prompt, temperature, maxTokens, context, vocab] in
             var fullResponse = ""
@@ -93,8 +93,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
             }
             
             // Initialize sampler chain
-            var sparams = llama_sampler_chain_default_params()
-            var sampler = llama_sampler_chain_init(sparams)
+            let sparams = llama_sampler_chain_default_params()
+            let sampler = llama_sampler_chain_init(sparams)
             llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40))
             llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.95, 1))
             llama_sampler_chain_add(sampler, llama_sampler_init_temp(Float(temperature)))
@@ -145,7 +145,7 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
                         return
                     }
                     
-                    let (context, vocab) = try await self.getContextAndVocab()
+                    let (context, vocab) = try self.getContextAndVocab()
                     
                     var tokens = self.tokenize(prompt, vocab: vocab)
                     guard !tokens.isEmpty else {
@@ -160,8 +160,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
                         return
                     }
                     
-                    var sparams = llama_sampler_chain_default_params()
-                    var sampler = llama_sampler_chain_init(sparams)
+let sparams = llama_sampler_chain_default_params()
+                    let sampler = llama_sampler_chain_init(sparams)
                     llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40))
                     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.95, 1))
                     llama_sampler_chain_add(sampler, llama_sampler_init_temp(Float(temperature)))
@@ -208,7 +208,7 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
     }
     
     func unload() async {
-        let (model, context) = await getModelAndContext()
+        let (model, context) = getModelAndContext()
         
         if let context = context {
             llama_free(context)
@@ -217,7 +217,7 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
             llama_model_free(model)
         }
         
-        await setUnloaded()
+        setUnloaded()
         llama_backend_free()
         print("Model unloaded")
     }
@@ -235,8 +235,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
         return Array(tokens.prefix(Int(nTokens)))
     }
     
-    private func setLoaded(model: OpaquePointer, context: OpaquePointer, vocab: OpaquePointer) async {
-        await queue.sync {
+    private func setLoaded(model: OpaquePointer, context: OpaquePointer, vocab: OpaquePointer) {
+        queue.sync {
             self.model = model
             self.context = context
             self.vocab = vocab
@@ -244,8 +244,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
         }
     }
     
-    private func setUnloaded() async {
-        await queue.sync {
+    private func setUnloaded() {
+        queue.sync {
             self.model = nil
             self.context = nil
             self.vocab = nil
@@ -253,8 +253,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
         }
     }
     
-    private func getContextAndVocab() async throws -> (OpaquePointer, OpaquePointer) {
-        let (context, vocab, loaded) = await queue.sync {
+    private func getContextAndVocab() throws -> (OpaquePointer, OpaquePointer) {
+        let (context, vocab, loaded) = queue.sync {
             (self.context, self.vocab, self.isLoaded)
         }
         guard loaded, let context = context, let vocab = vocab else {
@@ -263,8 +263,8 @@ final class LlamaCppInferenceEngine: InferenceEngineProtocol {
         return (context, vocab)
     }
     
-    private func getModelAndContext() async -> (OpaquePointer?, OpaquePointer?) {
-        await queue.sync { (self.model, self.context) }
+    private func getModelAndContext() -> (OpaquePointer?, OpaquePointer?) {
+        queue.sync { (self.model, self.context) }
     }
 }
 

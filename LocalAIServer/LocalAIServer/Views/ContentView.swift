@@ -7,6 +7,28 @@
 
 import SwiftUI
 
+enum Tab: String, CaseIterable, Identifiable {
+    case dashboard = "Dashboard"
+    case chat = "Chat"
+    case models = "Models"
+    case server = "API Server"
+    case docs = "API Docs"
+    case settings = "Settings"
+    
+    var id: String { rawValue }
+    
+    var icon: String {
+        switch self {
+        case .dashboard: return "gauge"
+        case .chat: return "bubble.left.and.bubble.right.fill"
+        case .models: return "brain.head.profile"
+        case .server: return "server.rack"
+        case .docs: return "doc.text"
+        case .settings: return "gear"
+        }
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject var modelManager: ModelManager
     @EnvironmentObject var serverManager: ServerManager
@@ -14,34 +36,14 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var selectedTab: Tab = .dashboard
     
-    enum Tab: String, CaseIterable, Identifiable {
-        case dashboard = "Dashboard"
-        case chat = "Chat"
-        case models = "Models"
-        case server = "API Server"
-        case docs = "API Docs"
-        case settings = "Settings"
-        
-        var id: String { rawValue }
-        
-        var icon: String {
-            switch self {
-            case .dashboard: return "gauge"
-            case .chat: return "bubble.left.and.bubble.right.fill"
-            case .models: return "brain.head.profile"
-            case .server: return "server.rack"
-            case .docs: return "doc.text"
-            case .settings: return "gear"
-            }
-        }
-    }
-    
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             // Sidebar - Navigation
             List {
                 ForEach(Tab.allCases) { tab in
-                    NavigationLink(value: tab) {
+                    Button {
+                        selectedTab = tab
+                    } label: {
                         Label(tab.rawValue, systemImage: tab.icon)
                             .foregroundColor(selectedTab == tab ? .accentColor : .primary)
                     }
@@ -55,49 +57,13 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            // Detail View - must declare navigationDestination for sidebar links
-            DetailColumn(selectedTab: $selectedTab)
+            detailView(for: selectedTab)
         }
         .navigationSplitViewStyle(.balanced)
-        .onChange(of: selectedTab) { _ in
-            // Navigation handled by NavigationLink
-        }
     }
     
     @ViewBuilder
     private func detailView(for tab: Tab) -> some View {
-        switch tab {
-        case .dashboard:
-            DashboardView()
-        case .chat:
-            ChatView()
-        case .models:
-            ModelsView()
-        case .server:
-            ServerView()
-        case .docs:
-            APIDocsView()
-        case .settings:
-            SettingsView()
-        }
-    }
-}
-
-// Detail column that handles navigation from sidebar
-private struct DetailColumn: View {
-    @Binding var selectedTab: ContentView.Tab
-    
-    var body: some View {
-        NavigationStack {
-            detailView(for: selectedTab)
-        }
-        .navigationDestination(for: ContentView.Tab.self) { tab in
-            detailView(for: tab)
-        }
-    }
-    
-    @ViewBuilder
-    private func detailView(for tab: ContentView.Tab) -> some View {
         switch tab {
         case .dashboard:
             DashboardView()

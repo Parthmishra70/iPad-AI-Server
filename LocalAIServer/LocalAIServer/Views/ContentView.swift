@@ -87,7 +87,7 @@ struct ServerStatusBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(serverManager.isRunning ? Color.green : Color.red)
+                .fill(serverManager.isRunning ? Color(.systemGreen) : Color(.systemRed))
                 .frame(width: 8, height: 8)
                 .animation(.easeInOut(duration: 0.2), value: serverManager.isRunning)
             
@@ -99,7 +99,7 @@ struct ServerStatusBadge: View {
         .padding(.vertical, 4)
         .background(
             Capsule()
-                .fill(serverManager.isRunning ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                .fill(serverManager.isRunning ? Color(.systemGreen).opacity(0.15) : Color(.systemRed).opacity(0.15))
         )
     }
 }

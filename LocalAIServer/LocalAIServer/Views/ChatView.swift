@@ -43,12 +43,20 @@ struct ChatView: View {
     @State private var systemPrompt: String = ""
     @State private var showSettings = false
     @State private var streamTask: Task<Void, Never>?
+    @State private var tokensUsed: Int = 0
+    @State private var tokensPerSecond: Double = 0
+    @State private var generationStartTime: Date? = nil
     
     var body: some View {
         VStack(spacing: 0) {
             // Model indicator header
             if let activeModel = modelManager.activeModel {
-                ActiveModelHeader(model: activeModel, isStreaming: isStreaming)
+                ActiveModelHeader(
+                    model: activeModel,
+                    isStreaming: isStreaming,
+                    tokensUsed: isStreaming ? tokensUsed : nil,
+                    tokensPerSecond: isStreaming ? tokensPerSecond : nil
+                )
             } else {
                 NoModelHeader()
             }
@@ -120,6 +128,8 @@ struct ChatView: View {
                         .foregroundColor(messages.isEmpty ? .secondary : .red)
                 }
                 .disabled(messages.isEmpty)
+                .accessibilityLabel("Clear chat")
+                .accessibilityHint("Removes all messages from the conversation")
             }
             
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -128,6 +138,8 @@ struct ChatView: View {
                         Label("Stop", systemImage: "stop.fill")
                             .foregroundColor(.red)
                     }
+                    .accessibilityLabel("Stop generation")
+                    .accessibilityHint("Stops the current AI response generation")
                 } else {
                     Menu {
                         if let model = modelManager.activeModel {
@@ -149,6 +161,8 @@ struct ChatView: View {
                         Image(systemName: "ellipsis.circle")
                             .font(.title3)
                     }
+                    .accessibilityLabel("More options")
+                    .accessibilityHint("Opens menu with settings and clear chat options")
                 }
             }
         }
@@ -182,6 +196,8 @@ struct ChatView: View {
         inputText = ""
         isStreaming = true
         currentResponse = ""
+        tokensUsed = 0
+        generationStartTime = Date()
         
         streamTask = Task {
             do {
@@ -201,6 +217,10 @@ struct ChatView: View {
                     try Task.checkCancellation()
                     await MainActor.run {
                         currentResponse += token
+                        tokensUsed += 1
+                        if let startTime = generationStartTime {
+                            tokensPerSecond = Double(tokensUsed) / Date().timeIntervalSince(startTime)
+                        }
                     }
                 }
                 
@@ -211,6 +231,7 @@ struct ChatView: View {
                     currentResponse = ""
                     isStreaming = false
                     streamTask = nil
+                    generationStartTime = nil
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -222,6 +243,7 @@ struct ChatView: View {
                     currentResponse = ""
                     isStreaming = false
                     streamTask = nil
+                    generationStartTime = nil
                 }
             } catch {
                 await MainActor.run {
@@ -234,6 +256,7 @@ struct ChatView: View {
                     currentResponse = ""
                     isStreaming = false
                     streamTask = nil
+                    generationStartTime = nil
                 }
             }
         }
@@ -288,6 +311,8 @@ struct ChatView: View {
 struct ActiveModelHeader: View {
     let model: AIModel
     let isStreaming: Bool
+    var tokensUsed: Int? = nil
+    var tokensPerSecond: Double? = nil
     
     var body: some View {
         HStack(spacing: 12) {
@@ -317,6 +342,25 @@ struct ActiveModelHeader: View {
                     Text("\(model.contextLength) ctx")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                    
+                    if let tokensUsed = tokensUsed, let maxTokens = maxTokensForModel {
+                        Text("\(tokensUsed)/\(maxTokens)")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(4)
+                    }
+                    
+                    if let tokensPerSecond = tokensPerSecond {
+                        Text("\(tokensPerSecond, specifier: "%.1f") tok/s")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color(.systemGreen).opacity(0.15))
+                            .cornerRadius(4)
+                            .foregroundColor(Color(.systemGreen))
+                    }
                 }
             }
             
@@ -335,6 +379,11 @@ struct ActiveModelHeader: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(Color(.systemBackground))
+    }
+    
+    private var maxTokensForModel: Int? {
+        // Return a reasonable max for display purposes
+        return 4096
     }
     
     private var modelColor: Color {
@@ -651,6 +700,9 @@ struct ChatInputView: View {
                         .background(Color(.systemGray5))
                         .cornerRadius(6)
                 }
+                .accessibilityLabel("Temperature")
+                .accessibilityValue("\(temperature, specifier: "%.1f")")
+                .accessibilityHint("Controls randomness of AI responses. Lower is more focused, higher is more creative.")
                 
                 Menu {
                     ForEach(maxTokensOptions, id: \.self) { value in
@@ -671,6 +723,9 @@ struct ChatInputView: View {
                         .background(Color(.systemGray5))
                         .cornerRadius(6)
                 }
+                .accessibilityLabel("Max tokens")
+                .accessibilityValue("\(maxTokens)")
+                .accessibilityHint("Maximum length of AI response in tokens")
                 
                 Spacer()
                 
@@ -679,6 +734,8 @@ struct ChatInputView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+                .accessibilityLabel("Settings")
+                .accessibilityHint("Opens chat settings with more options")
             }
             .padding(.horizontal, 16)
             
@@ -696,6 +753,8 @@ struct ChatInputView: View {
                     .onSubmit {
                         if !isStreaming { onSend() }
                     }
+                    .accessibilityLabel("Message input")
+                    .accessibilityHint("Type your message here. Press return to send.")
                 
                 if isStreaming {
                     Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); onStop() }) {
@@ -704,6 +763,8 @@ struct ChatInputView: View {
                             .foregroundColor(.red)
                     }
                     .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel("Stop generation")
+                    .accessibilityHint("Stops the current AI response generation")
                 } else {
                     Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); onSend() }) {
                         Image(systemName: "arrow.up.circle.fill")
@@ -714,6 +775,8 @@ struct ChatInputView: View {
                     .scaleEffect(canSend ? 1.0 : 0.9)
                     .animation(.spring(response: 0.3), value: canSend)
                     .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel("Send message")
+                    .accessibilityHint("Sends your message to the AI model")
                 }
             }
             .padding(.horizontal, 16)
@@ -784,7 +847,7 @@ struct ChatSettingsView: View {
                         maxTokens = 512
                         systemPrompt = ""
                     }
-                    .foregroundColor(.red)
+                    .foregroundColor(Color(.systemRed))
                 }
             }
             .navigationTitle("Chat Settings")

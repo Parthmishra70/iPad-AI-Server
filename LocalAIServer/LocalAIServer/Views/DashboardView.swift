@@ -15,29 +15,44 @@ struct DashboardView: View {
         GeometryReader { geometry in
             let columns = gridColumns(for: geometry.size.width)
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 20) {
-                    // Server Status Card
-                    ServerStatusCard()
-                        .gridCellColumns(columns.count == 1 ? 1 : 2)
-                    
-                    // Active Model Card
-                    ActiveModelCard()
-                    
-                    // Network Info Card
-                    NetworkInfoCard()
-                    
-                    // Quick Stats
-                    QuickStatsCard()
-                        .gridCellColumns(columns.count == 1 ? 1 : 2)
+                if modelManager.isLoadingModels || serverManager.isRefreshingIP {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        SkeletonCard(height: 220)
+                            .gridCellColumns(columns.count == 1 ? 1 : 2)
+                        SkeletonCard(height: 180)
+                        SkeletonCard(height: 200)
+                        SkeletonCard(height: 150)
+                            .gridCellColumns(columns.count == 1 ? 1 : 2)
+                    }
+                    .padding(24)
+                    .animation(.easeInOut(duration: 0.3), value: columns.count)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        // Server Status Card
+                        ServerStatusCard()
+                            .gridCellColumns(columns.count == 1 ? 1 : 2)
+                        
+                        // Active Model Card
+                        ActiveModelCard()
+                        
+                        // Network Info Card
+                        NetworkInfoCard()
+                        
+                        // Quick Stats
+                        QuickStatsCard()
+                            .gridCellColumns(columns.count == 1 ? 1 : 2)
+                    }
+                    .padding(24)
+                    .animation(.easeInOut(duration: 0.3), value: columns.count)
                 }
-                .padding(24)
-                .animation(.easeInOut(duration: 0.3), value: columns.count)
             }
         }
         .navigationTitle("Dashboard")
         .refreshable {
-            modelManager.loadSavedModels()
-            serverManager.refreshIPAddress()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await modelManager.loadSavedModels() }
+                group.addTask { await serverManager.refreshIPAddress() }
+            }
         }
         .background(Color(.systemGroupedBackground))
     }
@@ -79,7 +94,7 @@ struct ServerStatusCard: View {
                             .fontWeight(.medium)
                     } icon: {
                         Circle()
-                            .fill(serverManager.isRunning ? Color.green : Color.red)
+                            .fill(serverManager.isRunning ? Color(.systemGreen) : Color(.systemRed))
                             .frame(width: 10, height: 10)
                     }
                     
@@ -92,38 +107,40 @@ struct ServerStatusCard: View {
                     if serverManager.isRunning {
                         Label("Ready for requests", systemImage: "checkmark.circle.fill")
                             .font(.caption)
-                            .foregroundColor(.green)
+                            .foregroundColor(Color(.systemGreen))
                     }
                 }
                 
                 Spacer()
                 
-                Button(action: toggleServer) {
+                Button(action: { UIImpactFeedbackGenerator(style: .medium).impactOccurred(); toggleServer() }) {
                     Label(
                         serverManager.isRunning ? "Stop Server" : "Start Server",
                         systemImage: serverManager.isRunning ? "stop.fill" : "play.fill"
                     )
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
-                    .background(serverManager.isRunning ? Color.red : Color.green)
+                    .background(serverManager.isRunning ? Color(.systemRed) : Color(.systemGreen))
                     .foregroundColor(.white)
                     .cornerRadius(10)
                     .font(.headline)
                 }
                 .disabled(serverManager.errorMessage != nil)
                 .buttonStyle(.plain)
+                .accessibilityLabel(serverManager.isRunning ? "Stop server" : "Start server")
+                .accessibilityHint(serverManager.isRunning ? "Stops the local AI server" : "Starts the local AI server")
             }
             
             if let error = serverManager.errorMessage {
                 HStack {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
+                        .foregroundColor(Color(.systemRed))
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundColor(Color(.systemRed))
                 }
                 .padding(12)
-                .background(Color.red.opacity(0.1))
+                .background(Color(.systemRed).opacity(0.15))
                 .cornerRadius(8)
             }
         }
@@ -193,6 +210,8 @@ struct ActiveModelCard: View {
                             Label("Manage Models", systemImage: "arrow.right")
                                 .font(.subheadline.weight(.medium))
                         }
+                        .accessibilityLabel("Manage models")
+                        .accessibilityHint("Opens the models management screen")
                     }
                 }
             } else {
@@ -210,6 +229,8 @@ struct ActiveModelCard: View {
                             .font(.subheadline.weight(.medium))
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Browse models")
+                    .accessibilityHint("Opens the models screen to download and load models")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 20)
@@ -269,12 +290,14 @@ struct NetworkInfoCard: View {
                 }
                 
                 HStack(spacing: 12) {
-                    Button(action: copyEndpoint) {
+                    Button(action: { UIImpactFeedbackGenerator(style: .light).impactOccurred(); copyEndpoint() }) {
                         Label("Copy Endpoint", systemImage: "doc.on.doc")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .accessibilityLabel("Copy endpoint")
+                    .accessibilityHint("Copies the API endpoint URL to clipboard")
                     
                     NavigationLink(destination: QRCodeView(endpoint: serverManager.apiEndpoint ?? "")) {
                         Label("QR Code", systemImage: "qrcode")
@@ -282,6 +305,8 @@ struct NetworkInfoCard: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                    .accessibilityLabel("Show QR code")
+                    .accessibilityHint("Displays a QR code with the API endpoint for easy sharing")
                 }
             } else {
                 VStack(spacing: 12) {
@@ -389,7 +414,7 @@ struct StatusIndicator: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(isRunning ? Color.green : Color.red)
+                .fill(isRunning ? Color(.systemGreen) : Color(.systemRed))
                 .frame(width: 8, height: 8)
                 .animation(.easeInOut(duration: 0.2), value: isRunning)
             
@@ -401,7 +426,7 @@ struct StatusIndicator: View {
         .padding(.vertical, 5)
         .background(
             Capsule()
-                .fill(isRunning ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+                .fill(isRunning ? Color(.systemGreen).opacity(0.15) : Color(.systemRed).opacity(0.15))
         )
     }
 }

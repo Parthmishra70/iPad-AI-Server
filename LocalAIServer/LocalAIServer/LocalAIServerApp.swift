@@ -21,8 +21,13 @@ struct LocalAIServerApp: App {
                 .environmentObject(apiKeyService)
                 .onAppear {
                     // Initialize app state on launch
-                    modelManager.loadSavedModels()
-                    serverManager.loadConfiguration()
+                    Task {
+                        await withTaskGroup(of: Void.self) { group in
+                            group.addTask { await modelManager.loadSavedModels() }
+                            group.addTask { await serverManager.refreshIPAddress() }
+                            group.addTask { await serverManager.loadConfiguration() }
+                        }
+                    }
                 }
         }
     }

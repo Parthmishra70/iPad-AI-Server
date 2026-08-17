@@ -544,9 +544,17 @@ class ModelManager: ObservableObject {
     
     func loadModel(_ model: AIModel) async {
         guard model.isDownloaded else { return }
-        
+
+        // Don't kick off a second concurrent load of the same model
+        // (e.g. user taps "Load Model" in the sticky sheet AND taps
+        // "Load & Chat" on the post-download toast). The class is
+        // @MainActor so these property reads are already isolated.
+        if isLoadingModel, currentLoadingModelId == model.id {
+            return
+        }
+
         await updateModelState(model.id, state: .loading)
-        
+
         await MainActor.run {
             self.isLoadingModel = true
             self.currentLoadingModelId = model.id

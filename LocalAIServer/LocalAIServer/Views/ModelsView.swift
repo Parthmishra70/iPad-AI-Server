@@ -1077,6 +1077,10 @@ struct AddCustomModelSheet: View {
                 Task {
                     try? await Task.sleep(nanoseconds: 800_000_000)
                     await MainActor.run {
+                        // Dismiss the toast that fired when the download
+                        // finished — the user is already on the success
+                        // path through the sheet.
+                        ToastCenter.shared.dismiss()
                         dismiss()
                         selectedTab = .chat
                     }
@@ -1280,31 +1284,43 @@ struct AddCustomModelSheet: View {
         addedModel = model
         onAdd(model)
 
+        // Always kick off the download. The setting only changes whether
+        // the sheet stays mounted as a download companion or dismisses
+        // and routes the user back to the catalog row.
+        let downloadTask = Task {
+            do {
+                try await modelManager.downloadModel(model)
+                await MainActor.run {
+                    if !autoNavigateToCatalog {
+                        phase = .readyToLoad
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    if !autoNavigateToCatalog {
+                        if (error as? URLError)?.code == .cancelled {
+                            phase = .confirm
+                        } else {
+                            loadError = error.localizedDescription
+                            phase = .confirm
+                        }
+                    }
+                }
+            }
+        }
+
         if autoNavigateToCatalog {
+            // Dismiss the sheet AND pop back to the catalog so the user
+            // can see the new model's row with live progress. The download
+            // continues in the background; ModelManager emits a toast on
+            // completion so the user can also act from anywhere.
+            selectedTab = .models
             dismiss()
             return
         }
 
         phase = .downloading
-        Task {
-            do {
-                try await modelManager.downloadModel(model)
-                await MainActor.run {
-                    phase = .readyToLoad
-                }
-            } catch {
-                // Cancellation propagates here too — keep the sheet open so
-                // the user sees the cancel worked, then drop back to confirm.
-                await MainActor.run {
-                    if (error as? URLError)?.code == .cancelled {
-                        phase = .confirm
-                    } else {
-                        loadError = error.localizedDescription
-                        phase = .confirm
-                    }
-                }
-            }
-        }
+        _ = downloadTask
     }
 
     private func loadAddedModel() {

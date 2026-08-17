@@ -416,10 +416,13 @@ struct ActiveModelHeader: View {
         .background(Color(.systemBackground))
         .contentShape(Rectangle())
         .onTapGesture {
+            // Don't allow switching mid-generation — the in-flight stream
+            // would be cancelled by the unload that loadModel performs.
+            guard !isStreaming else { return }
             showingSwitcher = true
         }
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Tap to switch active model")
+        .accessibilityAddTraits(isStreaming ? [] : .isButton)
+        .accessibilityHint(isStreaming ? "Model switching disabled while generating" : "Tap to switch active model")
         .popover(isPresented: $showingSwitcher, arrowEdge: .top) {
             ModelSwitcherView(
                 models: modelManager.models.filter { $0.isDownloaded },
@@ -427,13 +430,18 @@ struct ActiveModelHeader: View {
                 isLoading: modelManager.isLoadingModel,
                 loadingModelId: loadingModelId,
                 onSelect: { chosen in
-                    showingSwitcher = false
-                    guard chosen.id != modelManager.activeModelId else { return }
+                    guard chosen.id != modelManager.activeModelId else {
+                        showingSwitcher = false
+                        return
+                    }
                     loadingModelId = chosen.id
                     Task {
                         await modelManager.loadModel(chosen)
                         await MainActor.run {
                             loadingModelId = nil
+                            // Dismiss only after load completes so the user
+                            // sees the loading spinner inside the popover.
+                            showingSwitcher = false
                         }
                     }
                 }
